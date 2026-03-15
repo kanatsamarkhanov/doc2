@@ -1,25 +1,23 @@
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║          ArticleAI — SaaS Research Writing Platform                        ║
-# ║          Streamlit · python-docx · Multilingual EN/RU/KZ                  ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
+# ════════════════════════════════════════════════════════════════════════════
+#  Smart Article — Research Writing Platform  v2.0
+#  Fixes: light-mode CSS · login+register · separate Figures/Tables/Formulas
+#         ГОСТ 7.0.5-2008 · GitHub Gist · file logging
+# ════════════════════════════════════════════════════════════════════════════
 
 import streamlit as st
-import re
-import json
-import io
+import re, json, io, hashlib
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 
 st.set_page_config(
-    page_title="ArticleAI — Research Writing Platform",
-    page_icon="🧠",
+    page_title="Smart Article",
+    page_icon="📝",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OPTIONAL DEPENDENCIES
-# ─────────────────────────────────────────────────────────────────────────────
+# ── optional deps ─────────────────────────────────────────────────────────────
 try:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
@@ -30,180 +28,310 @@ except ImportError:
 
 try:
     import pandas as pd
-    PANDAS_OK = True
+    PD_OK = True
 except ImportError:
-    PANDAS_OK = False
+    PD_OK = False
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TRANSLATIONS  (EN / RU / KZ)
-# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import requests
+    REQ_OK = True
+except ImportError:
+    REQ_OK = False
+
+# ── storage paths ─────────────────────────────────────────────────────────────
+USERS_FILE = Path("users.json")
+LOGS_FILE  = Path("logs.json")
+
+# ════════════════════════════════════════════════════════════════════════════
+# AUTH  (Registration · Login · File Logging)
+# ════════════════════════════════════════════════════════════════════════════
+def hp(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+def load_users() -> dict:
+    if USERS_FILE.exists():
+        try:   return json.loads(USERS_FILE.read_text("utf-8"))
+        except: return {}
+    seed = {"admin": {"password": hp("admin123"), "name": "Kanat Samarkhanov",
+                      "email": "admin@smart-article.kz", "role": "Researcher",
+                      "created_at": datetime.now().isoformat()}}
+    USERS_FILE.write_text(json.dumps(seed, ensure_ascii=False, indent=2), "utf-8")
+    return seed
+
+def save_users(u: dict):
+    USERS_FILE.write_text(json.dumps(u, ensure_ascii=False, indent=2), "utf-8")
+
+def load_logs() -> list:
+    if LOGS_FILE.exists():
+        try:   return json.loads(LOGS_FILE.read_text("utf-8"))
+        except: return []
+    return []
+
+def add_log(event: str, user: str, detail: str = ""):
+    logs = load_logs()
+    logs.append({"event": event, "username": user,
+                 "detail": detail, "ts": datetime.now().isoformat()})
+    LOGS_FILE.write_text(
+        json.dumps(logs[-2000:], ensure_ascii=False, indent=2), "utf-8")
+
+def do_register(uname, email, pw, name, role="Researcher"):
+    if len(uname) < 3:  return False, "uname_short"
+    if len(pw) < 6:     return False, "pw_short"
+    users = load_users()
+    if uname in users:  return False, "username_taken"
+    if any(v.get("email") == email for v in users.values()):
+        return False, "email_taken"
+    users[uname] = {"password": hp(pw), "name": name, "email": email,
+                    "role": role, "created_at": datetime.now().isoformat()}
+    save_users(users)
+    add_log("register", uname, f"email={email} role={role}")
+    return True, "ok"
+
+def do_login(uname, pw):
+    users = load_users()
+    if uname not in users:
+        add_log("fail", uname, "user_not_found"); return False, {}
+    if users[uname]["password"] != hp(pw):
+        add_log("fail", uname, "wrong_password"); return False, {}
+    add_log("login", uname)
+    return True, users[uname]
+
+# ════════════════════════════════════════════════════════════════════════════
+# TRANSLATIONS  EN / RU / KZ
+# ════════════════════════════════════════════════════════════════════════════
 TR = {
-    "🇬🇧 English": {
-        "app_title": "ArticleAI", "tagline": "Research Writing Platform",
-        "login_title": "Sign In", "username": "Username", "password": "Password",
-        "login_btn": "Sign In →", "login_err": "Invalid credentials. Try: admin / admin123",
-        "nav_info": "📄 Article Info", "nav_sections": "✍️ Sections",
-        "nav_figures": "🖼️ Figures & Tables", "nav_refs": "📑 References",
-        "nav_generate": "🚀 Generate", "nav_settings": "⚙️ Settings",
-        "logout": "Logout",
-        "step": "Step", "of": "of",
-        "art_title": "Article Title", "authors": "Authors",
-        "affiliation": "Affiliation", "journal": "Target Journal",
-        "keywords": "Keywords", "abstract": "Abstract",
-        "art_type": "Article Type",
-        "intro": "Introduction", "methods": "Methods",
-        "results": "Results", "discussion": "Discussion", "conclusion": "Conclusion",
-        "upload_docx": "Upload DOCX / TXT",
-        "fig_mgr": "Figures & Tables Manager",
-        "add_fig": "Add Figure", "fig_caption": "Figure Caption",
-        "fig_num": "Figure No.", "upload_fig": "Upload Figure (PNG/JPG/TIF)",
-        "add_tbl": "Add Table", "tbl_caption": "Table Caption",
-        "tbl_num": "Table No.", "tbl_data": "Table data (CSV format)",
-        "ref_mgr": "References Manager", "add_ref": "Add Reference",
-        "ref_type": "Type", "ref_authors": "Authors", "ref_year": "Year",
-        "ref_title_f": "Title", "ref_journal": "Journal / Publisher",
-        "ref_vol": "Volume", "ref_pages": "Pages", "ref_doi": "DOI",
-        "import_refs": "Import BibTeX / plain text",
-        "generate": "Generate Article",
-        "dl_docx": "📥 Download DOCX", "dl_md": "📥 Download Markdown",
-        "save_json": "💾 Save Project (JSON)", "load_json": "📂 Load Project (JSON)",
-        "w_words": "Words", "w_secs": "Sections", "w_figs": "Figures",
-        "w_tbls": "Tables", "w_refs": "References",
-        "stats": "📊 Article Stats", "settings": "Settings",
-        "theme": "Theme", "lang": "Language", "cite_style": "Citation Style",
-        "success_gen": "✅ Article generated!", "warn_title": "⚠️ Please add an article title first.",
-        "preview": "📄 Article Preview", "sec_editor": "✍️ Section Editor",
-        "word_count": "Word count", "add_btn": "Add", "del_btn": "Delete",
-        "ref_list": "Reference List", "no_refs": "No references yet.",
-        "no_figs": "No figures yet.", "no_tbls": "No tables yet.",
-        "welcome": "Welcome back", "downloading": "Preparing document…",
-        "completeness": "Article Completeness",
-        "art_types": ["Research Article", "Review Article", "Short Communication",
-                      "Letter", "Case Study"],
-        "ref_types_list": ["Journal Article", "Book", "Book Chapter",
-                           "Conference Paper", "Website", "Thesis"],
-        "cite_styles": ["APA 7th", "Vancouver", "Harvard", "IEEE", "Chicago"],
-        "themes": ["🌙 Dark", "☀️ Light"],
-        "jrn_ph": "e.g. Remote Sensing, Catena, Journal of Hydrology",
-        "kw_ph":  "e.g. GIS, remote sensing, hydrology",
-        "reset": "Reset all data", "reset_ok": "✅ All data cleared.",
-        "import_btn": "Import", "imported": "Imported",
-        "ref_s": "reference(s)", "loaded": "✅ Project loaded!",
-    },
-    "🇷🇺 Русский": {
-        "app_title": "ArticleAI", "tagline": "Платформа написания статей",
-        "login_title": "Вход", "username": "Логин", "password": "Пароль",
-        "login_btn": "Войти →", "login_err": "Ошибка. Попробуйте: admin / admin123",
-        "nav_info": "📄 Информация", "nav_sections": "✍️ Разделы",
-        "nav_figures": "🖼️ Рисунки и таблицы", "nav_refs": "📑 Литература",
-        "nav_generate": "🚀 Генерация", "nav_settings": "⚙️ Настройки",
-        "logout": "Выйти",
-        "step": "Шаг", "of": "из",
-        "art_title": "Название статьи", "authors": "Авторы",
-        "affiliation": "Аффилиация", "journal": "Целевой журнал",
-        "keywords": "Ключевые слова", "abstract": "Аннотация",
-        "art_type": "Тип статьи",
-        "intro": "Введение", "methods": "Методы",
-        "results": "Результаты", "discussion": "Обсуждение", "conclusion": "Заключение",
-        "upload_docx": "Загрузить DOCX / TXT",
-        "fig_mgr": "Менеджер рисунков и таблиц",
-        "add_fig": "Добавить рисунок", "fig_caption": "Подпись к рисунку",
-        "fig_num": "№ рисунка", "upload_fig": "Загрузить рисунок (PNG/JPG)",
-        "add_tbl": "Добавить таблицу", "tbl_caption": "Заголовок таблицы",
-        "tbl_num": "№ таблицы", "tbl_data": "Данные таблицы (CSV)",
-        "ref_mgr": "Менеджер литературы", "add_ref": "Добавить источник",
-        "ref_type": "Тип", "ref_authors": "Авторы", "ref_year": "Год",
-        "ref_title_f": "Название", "ref_journal": "Журнал / Издательство",
-        "ref_vol": "Том", "ref_pages": "Страницы", "ref_doi": "DOI",
-        "import_refs": "Импорт BibTeX / текст",
-        "generate": "Генерировать статью",
-        "dl_docx": "📥 Скачать DOCX", "dl_md": "📥 Скачать Markdown",
-        "save_json": "💾 Сохранить проект (JSON)", "load_json": "📂 Загрузить проект (JSON)",
-        "w_words": "Слов", "w_secs": "Разделов", "w_figs": "Рисунков",
-        "w_tbls": "Таблиц", "w_refs": "Источников",
-        "stats": "📊 Статистика статьи", "settings": "Настройки",
-        "theme": "Тема", "lang": "Язык", "cite_style": "Стиль цитирования",
-        "success_gen": "✅ Статья сгенерирована!", "warn_title": "⚠️ Введите название статьи.",
-        "preview": "📄 Предпросмотр", "sec_editor": "✍️ Редактор разделов",
-        "word_count": "Количество слов", "add_btn": "Добавить", "del_btn": "Удалить",
-        "ref_list": "Список литературы", "no_refs": "Источники не добавлены.",
-        "no_figs": "Рисунки не добавлены.", "no_tbls": "Таблицы не добавлены.",
-        "welcome": "Добро пожаловать", "downloading": "Подготовка документа…",
-        "completeness": "Заполненность статьи",
-        "art_types": ["Научная статья", "Обзорная статья", "Краткое сообщение",
-                      "Письмо", "Кейс-стади"],
-        "ref_types_list": ["Журнальная статья", "Книга", "Глава книги",
-                           "Материалы конференции", "Сайт", "Диссертация"],
-        "cite_styles": ["APA 7th", "Ванкувер", "Гарвард", "IEEE", "Чикаго"],
-        "themes": ["🌙 Тёмная", "☀️ Светлая"],
-        "jrn_ph": "напр., Remote Sensing, Catena, Гидрология",
-        "kw_ph":  "напр., ГИС, дистанционное зондирование, гидрология",
-        "reset": "Очистить все данные", "reset_ok": "✅ Данные очищены.",
-        "import_btn": "Импорт", "imported": "Импортировано",
-        "ref_s": "источник(ов)", "loaded": "✅ Проект загружен!",
-    },
-    "🇰🇿 Қазақша": {
-        "app_title": "ArticleAI", "tagline": "Ғылыми мақала жазу платформасы",
-        "login_title": "Жүйеге кіру", "username": "Пайдаланушы аты", "password": "Құпия сөз",
-        "login_btn": "Кіру →", "login_err": "Қате. admin / admin123 қолданыңыз",
-        "nav_info": "📄 Мақала туралы", "nav_sections": "✍️ Бөлімдер",
-        "nav_figures": "🖼️ Суреттер мен кестелер", "nav_refs": "📑 Әдебиеттер",
-        "nav_generate": "🚀 Генерация", "nav_settings": "⚙️ Параметрлер",
-        "logout": "Шығу",
-        "step": "Қадам", "of": "/",
-        "art_title": "Мақала атауы", "authors": "Авторлар",
-        "affiliation": "Аффилиация", "journal": "Мақсатты журнал",
-        "keywords": "Кілт сөздер", "abstract": "Аннотация",
-        "art_type": "Мақала түрі",
-        "intro": "Кіріспе", "methods": "Әдістер",
-        "results": "Нәтижелер", "discussion": "Талқылау", "conclusion": "Қорытынды",
-        "upload_docx": "DOCX / TXT жүктеу",
-        "fig_mgr": "Суреттер мен кестелер менеджері",
-        "add_fig": "Сурет қосу", "fig_caption": "Сурет аңызы",
-        "fig_num": "Сурет №", "upload_fig": "Сурет жүктеу (PNG/JPG)",
-        "add_tbl": "Кесте қосу", "tbl_caption": "Кесте тақырыбы",
-        "tbl_num": "Кесте №", "tbl_data": "Кесте деректері (CSV)",
-        "ref_mgr": "Әдебиеттер менеджері", "add_ref": "Дереккөз қосу",
-        "ref_type": "Түрі", "ref_authors": "Авторлар", "ref_year": "Жыл",
-        "ref_title_f": "Атауы", "ref_journal": "Журнал / Баспа",
-        "ref_vol": "Том", "ref_pages": "Беттер", "ref_doi": "DOI",
-        "import_refs": "BibTeX / мәтін импорты",
-        "generate": "Мақала генерациялау",
-        "dl_docx": "📥 DOCX жүктеу", "dl_md": "📥 Markdown жүктеу",
-        "save_json": "💾 Жобаны сақтау (JSON)", "load_json": "📂 Жобаны жүктеу (JSON)",
-        "w_words": "Сөздер", "w_secs": "Бөлімдер", "w_figs": "Суреттер",
-        "w_tbls": "Кестелер", "w_refs": "Дереккөздер",
-        "stats": "📊 Мақала статистикасы", "settings": "Параметрлер",
-        "theme": "Тақырып", "lang": "Тіл", "cite_style": "Цитата стилі",
-        "success_gen": "✅ Мақала сәтті жасалды!", "warn_title": "⚠️ Мақала атауын енгізіңіз.",
-        "preview": "📄 Алдын ала қарау", "sec_editor": "✍️ Бөлім редакторы",
-        "word_count": "Сөз саны", "add_btn": "Қосу", "del_btn": "Жою",
-        "ref_list": "Әдебиеттер тізімі", "no_refs": "Дереккөздер қосылмаған.",
-        "no_figs": "Суреттер қосылмаған.", "no_tbls": "Кестелер қосылмаған.",
-        "welcome": "Қош келдіңіз", "downloading": "Құжат дайындалуда…",
-        "completeness": "Мақала толықтығы",
-        "art_types": ["Ғылыми мақала", "Шолу мақаласы", "Қысқа хабарлама",
-                      "Хат", "Кейс-стади"],
-        "ref_types_list": ["Журнал мақаласы", "Кітап", "Кітап тарауы",
-                           "Конференция баяндамасы", "Веб-сайт", "Диссертация"],
-        "cite_styles": ["APA 7th", "Ванкувер", "Гарвард", "IEEE", "Чикаго"],
-        "themes": ["🌙 Күңгірт", "☀️ Жарық"],
-        "jrn_ph": "мыс., Remote Sensing, Catena",
-        "kw_ph":  "мыс., ГАЖ, қашықтықтан зондтау",
-        "reset": "Барлық деректерді тазалау", "reset_ok": "✅ Деректер тазаланды.",
-        "import_btn": "Импорт", "imported": "Импортталды",
-        "ref_s": "дереккөз(дер)", "loaded": "✅ Жоба жүктелді!",
-    },
+"🇬🇧 English": dict(
+    app="Smart Article", tagline="Research Writing Platform",
+    sign_in="Sign In", register="Register", username="Username",
+    password="Password", confirm_pw="Confirm Password", email="E-mail",
+    full_name="Full Name", role="Role",
+    roles=["Researcher","PhD Student","Professor","Analyst","Other"],
+    login_btn="Sign In →", reg_btn="Create Account →",
+    login_err="Invalid credentials", pw_mismatch="Passwords do not match",
+    pw_short="Password must be ≥ 6 characters", uname_short="Username must be ≥ 3 characters",
+    username_taken="Username already taken", email_taken="E-mail already registered",
+    reg_ok="✅ Account created! You can sign in now.",
+    have_account="Already have an account?", no_account="No account yet?",
+    logout="Logout",
+    nav_info="📄 Article Info", nav_sec="✍️ Sections",
+    nav_fig="🖼️ Figures", nav_tbl="📊 Tables",
+    nav_form="🧮 Formulas", nav_ref="📑 References",
+    nav_gen="🚀 Generate", nav_set="⚙️ Settings",
+    step="Step", of_="of",
+    title_f="Article Title", authors_f="Authors", affil_f="Affiliation",
+    journal_f="Target Journal", keywords_f="Keywords", abstract_f="Abstract",
+    art_type_f="Article Type",
+    art_types=["Research Article","Review Article","Short Communication","Letter","Case Study"],
+    intro="Introduction", methods="Methods", results="Results",
+    discussion="Discussion", conclusion="Conclusion",
+    upload_docx="Upload DOCX / TXT",
+    fig_mgr="Figures Manager", add_fig="Add Figure",
+    fig_no="Figure No.", fig_cap="Caption", upload_fig="Upload image (PNG/JPG/TIF)",
+    tbl_mgr="Tables Manager", add_tbl="Add Table",
+    tbl_no="Table No.", tbl_cap="Caption", tbl_data="Data (CSV format)",
+    form_mgr="Formulas Manager", add_form="Add Formula",
+    form_no="Formula No.", form_latex="LaTeX code",
+    form_desc="Description", form_preview="Preview",
+    ref_mgr="References Manager", add_ref="Add Reference",
+    ref_type="Type", ref_au="Authors", ref_yr="Year",
+    ref_ti="Title", ref_jn="Journal / Publisher",
+    ref_vol="Volume", ref_no="Number", ref_pp="Pages", ref_doi="DOI",
+    ref_city="City", ref_pub="Publisher",
+    ref_types=["Journal Article","Book","Book Chapter","Conference Paper","Website","Thesis"],
+    cite_styles=["APA 7th","Vancouver","Harvard","IEEE","ГОСТ 7.0.5-2008"],
+    import_refs="Import BibTeX / plain text", import_btn="Import",
+    imported="Imported", ref_s="reference(s)",
+    ref_list="Reference List", no_refs="No references yet.",
+    no_figs="No figures yet.", no_tbls="No tables yet.", no_forms="No formulas yet.",
+    gen_title="Generate & Export",
+    dl_docx="📥 Download DOCX", dl_md="📥 Download Markdown",
+    save_json="💾 Save Project (JSON)",
+    load_json_help=("💾 Save / Load Project (JSON): saves ALL article data — title, "
+                    "sections, references, formulas — into a .json file on your computer. "
+                    "Use 'Load' later to continue writing from where you left off, "
+                    "or share the file with co-authors."),
+    w_words="Words", w_secs="Sections", w_figs="Figures",
+    w_tbls="Tables", w_refs="References", w_forms="Formulas",
+    stats="📊 Article Stats",
+    settings_title="Settings", theme_label="Theme",
+    cite_style_label="Default Citation Style",
+    themes=["🌙 Dark","☀️ Light"],
+    reset_btn="Reset all data", reset_ok="✅ All data cleared.",
+    load_json="📂 Load Project (JSON)", loaded="✅ Project loaded!",
+    gh_title="GitHub Gist — Save / Load",
+    gh_token="GitHub Personal Access Token",
+    gh_save="☁️ Save to Gist", gh_load="📥 Load from Gist URL",
+    gh_url="Gist URL", gh_saved="✅ Saved to Gist!", gh_loaded="✅ Loaded from Gist!",
+    gh_err="GitHub error", gh_need_req="Install requests: pip install requests",
+    warn_title="⚠️ Please add an article title first.",
+    completeness="Article Completeness",
+    success_gen="✅ Article generated!", downloading="Preparing document…",
+    word_count="Word count", add_btn="Add", del_btn="Delete",
+    jrn_ph="e.g. Remote Sensing, Catena, Journal of Hydrology",
+    kw_ph="e.g. GIS, remote sensing, hydrology",
+    welcome="Welcome back",
+    preview="📄 Article Preview", sec_editor="✍️ Section Editor",
+),
+"🇷🇺 Русский": dict(
+    app="Smart Article", tagline="Платформа написания научных статей",
+    sign_in="Вход", register="Регистрация", username="Логин",
+    password="Пароль", confirm_pw="Подтвердите пароль", email="E-mail",
+    full_name="Полное имя", role="Роль",
+    roles=["Исследователь","Докторант","Профессор","Аналитик","Другое"],
+    login_btn="Войти →", reg_btn="Создать аккаунт →",
+    login_err="Неверный логин или пароль",
+    pw_mismatch="Пароли не совпадают",
+    pw_short="Пароль должен быть ≥ 6 символов",
+    uname_short="Логин должен быть ≥ 3 символов",
+    username_taken="Такой логин уже занят",
+    email_taken="E-mail уже зарегистрирован",
+    reg_ok="✅ Аккаунт создан! Теперь войдите в систему.",
+    have_account="Уже есть аккаунт?",
+    no_account="Нет аккаунта?",
+    logout="Выйти",
+    nav_info="📄 Информация", nav_sec="✍️ Разделы",
+    nav_fig="🖼️ Рисунки", nav_tbl="📊 Таблицы",
+    nav_form="🧮 Формулы", nav_ref="📑 Литература",
+    nav_gen="🚀 Генерация", nav_set="⚙️ Настройки",
+    step="Шаг", of_="из",
+    title_f="Название статьи", authors_f="Авторы", affil_f="Аффилиация",
+    journal_f="Целевой журнал", keywords_f="Ключевые слова", abstract_f="Аннотация",
+    art_type_f="Тип статьи",
+    art_types=["Научная статья","Обзорная статья","Краткое сообщение","Письмо","Кейс-стади"],
+    intro="Введение", methods="Методы", results="Результаты",
+    discussion="Обсуждение", conclusion="Заключение",
+    upload_docx="Загрузить DOCX / TXT",
+    fig_mgr="Менеджер рисунков", add_fig="Добавить рисунок",
+    fig_no="№ рисунка", fig_cap="Подпись", upload_fig="Загрузить изображение (PNG/JPG)",
+    tbl_mgr="Менеджер таблиц", add_tbl="Добавить таблицу",
+    tbl_no="№ таблицы", tbl_cap="Заголовок", tbl_data="Данные (формат CSV)",
+    form_mgr="Менеджер формул", add_form="Добавить формулу",
+    form_no="№ формулы", form_latex="Код LaTeX",
+    form_desc="Описание", form_preview="Предпросмотр",
+    ref_mgr="Менеджер литературы", add_ref="Добавить источник",
+    ref_type="Тип", ref_au="Авторы", ref_yr="Год",
+    ref_ti="Название", ref_jn="Журнал / Издательство",
+    ref_vol="Том", ref_no="Номер", ref_pp="Страницы", ref_doi="DOI",
+    ref_city="Город", ref_pub="Издательство",
+    ref_types=["Журнальная статья","Книга","Глава книги","Материалы конференции","Сайт","Диссертация"],
+    cite_styles=["APA 7th","Ванкувер","Гарвард","IEEE","ГОСТ 7.0.5-2008"],
+    import_refs="Импорт BibTeX / текст", import_btn="Импорт",
+    imported="Импортировано", ref_s="источник(ов)",
+    ref_list="Список литературы", no_refs="Источники не добавлены.",
+    no_figs="Рисунки не добавлены.", no_tbls="Таблицы не добавлены.",
+    no_forms="Формулы не добавлены.",
+    gen_title="Генерация и экспорт",
+    dl_docx="📥 Скачать DOCX", dl_md="📥 Скачать Markdown",
+    save_json="💾 Сохранить проект (JSON)",
+    load_json_help=("💾 Сохранить / Загрузить проект (JSON): сохраняет ВСЕ данные статьи — "
+                    "заголовок, разделы, литературу, формулы — в файл .json на вашем компьютере. "
+                    "Нажмите «Загрузить» позже, чтобы продолжить работу с того же места "
+                    "или поделиться файлом с соавторами."),
+    w_words="Слов", w_secs="Разделов", w_figs="Рисунков",
+    w_tbls="Таблиц", w_refs="Источников", w_forms="Формул",
+    stats="📊 Статистика статьи",
+    settings_title="Настройки", theme_label="Тема",
+    cite_style_label="Стиль цитирования",
+    themes=["🌙 Тёмная","☀️ Светлая"],
+    reset_btn="Очистить все данные", reset_ok="✅ Данные очищены.",
+    load_json="📂 Загрузить проект (JSON)", loaded="✅ Проект загружен!",
+    gh_title="GitHub Gist — Сохранить / Загрузить",
+    gh_token="GitHub Personal Access Token",
+    gh_save="☁️ Сохранить в Gist", gh_load="📥 Загрузить из Gist",
+    gh_url="URL Gist", gh_saved="✅ Сохранено в Gist!",
+    gh_loaded="✅ Загружено из Gist!", gh_err="Ошибка GitHub",
+    gh_need_req="Установите: pip install requests",
+    warn_title="⚠️ Пожалуйста, добавьте название статьи.",
+    completeness="Заполненность статьи",
+    success_gen="✅ Статья сгенерирована!", downloading="Подготовка документа…",
+    word_count="Количество слов", add_btn="Добавить", del_btn="Удалить",
+    jrn_ph="напр., Remote Sensing, Catena, Гидрология",
+    kw_ph="напр., ГИС, дистанционное зондирование",
+    welcome="Добро пожаловать",
+    preview="📄 Предпросмотр", sec_editor="✍️ Редактор разделов",
+),
+"🇰🇿 Қазақша": dict(
+    app="Smart Article", tagline="Ғылыми мақала жазу платформасы",
+    sign_in="Кіру", register="Тіркелу", username="Пайдаланушы аты",
+    password="Құпия сөз", confirm_pw="Құпия сөзді растаңыз", email="E-mail",
+    full_name="Толық аты", role="Рөл",
+    roles=["Зерттеуші","Докторант","Профессор","Аналитик","Басқа"],
+    login_btn="Кіру →", reg_btn="Аккаунт жасау →",
+    login_err="Қате логин немесе құпия сөз",
+    pw_mismatch="Құпия сөздер сәйкес келмейді",
+    pw_short="Құпия сөз ≥ 6 таңба болуы керек",
+    uname_short="Логин ≥ 3 таңба болуы керек",
+    username_taken="Мұндай логин бар",
+    email_taken="E-mail тіркелген",
+    reg_ok="✅ Аккаунт жасалды! Жүйеге кіріңіз.",
+    have_account="Аккаунтыңыз бар ма?",
+    no_account="Аккаунтыңыз жоқ па?",
+    logout="Шығу",
+    nav_info="📄 Мақала туралы", nav_sec="✍️ Бөлімдер",
+    nav_fig="🖼️ Суреттер", nav_tbl="📊 Кестелер",
+    nav_form="🧮 Формулалар", nav_ref="📑 Әдебиеттер",
+    nav_gen="🚀 Генерация", nav_set="⚙️ Параметрлер",
+    step="Қадам", of_="/",
+    title_f="Мақала атауы", authors_f="Авторлар", affil_f="Аффилиация",
+    journal_f="Мақсатты журнал", keywords_f="Кілт сөздер", abstract_f="Аннотация",
+    art_type_f="Мақала түрі",
+    art_types=["Ғылыми мақала","Шолу мақаласы","Қысқа хабарлама","Хат","Кейс-стади"],
+    intro="Кіріспе", methods="Әдістер", results="Нәтижелер",
+    discussion="Талқылау", conclusion="Қорытынды",
+    upload_docx="DOCX / TXT жүктеу",
+    fig_mgr="Суреттер менеджері", add_fig="Сурет қосу",
+    fig_no="Сурет №", fig_cap="Аңыз", upload_fig="Сурет жүктеу (PNG/JPG)",
+    tbl_mgr="Кестелер менеджері", add_tbl="Кесте қосу",
+    tbl_no="Кесте №", tbl_cap="Тақырып", tbl_data="Деректер (CSV форматы)",
+    form_mgr="Формулалар менеджері", add_form="Формула қосу",
+    form_no="Формула №", form_latex="LaTeX коды",
+    form_desc="Сипаттама", form_preview="Алдын ала қарау",
+    ref_mgr="Әдебиеттер менеджері", add_ref="Дереккөз қосу",
+    ref_type="Түрі", ref_au="Авторлар", ref_yr="Жыл",
+    ref_ti="Атауы", ref_jn="Журнал / Баспа",
+    ref_vol="Том", ref_no="Нөмір", ref_pp="Беттер", ref_doi="DOI",
+    ref_city="Қала", ref_pub="Баспа",
+    ref_types=["Журнал мақаласы","Кітап","Кітап тарауы","Конференция баяндамасы","Сайт","Диссертация"],
+    cite_styles=["APA 7th","Ванкувер","Гарвард","IEEE","ГОСТ 7.0.5-2008"],
+    import_refs="BibTeX / мәтін импорты", import_btn="Импорт",
+    imported="Импортталды", ref_s="дереккөз(дер)",
+    ref_list="Әдебиеттер тізімі", no_refs="Дереккөздер қосылмаған.",
+    no_figs="Суреттер қосылмаған.", no_tbls="Кестелер қосылмаған.",
+    no_forms="Формулалар қосылмаған.",
+    gen_title="Генерация және экспорт",
+    dl_docx="📥 DOCX жүктеу", dl_md="📥 Markdown жүктеу",
+    save_json="💾 Жобаны сақтау (JSON)",
+    load_json_help=("💾 Жобаны сақтау / жүктеу (JSON): мақаланың барлық деректерін — "
+                    "тақырып, бөлімдер, әдебиеттер, формулалар — компьютерге .json файлы ретінде сақтайды. "
+                    "Жұмысты жалғастыру үшін кейін «Жүктеу» батырмасын басыңыз."),
+    w_words="Сөздер", w_secs="Бөлімдер", w_figs="Суреттер",
+    w_tbls="Кестелер", w_refs="Дереккөздер", w_forms="Формулалар",
+    stats="📊 Мақала статистикасы",
+    settings_title="Параметрлер", theme_label="Тақырып",
+    cite_style_label="Цитата стилі",
+    themes=["🌙 Күңгірт","☀️ Жарық"],
+    reset_btn="Барлық деректерді тазалау", reset_ok="✅ Деректер тазаланды.",
+    load_json="📂 Жобаны жүктеу (JSON)", loaded="✅ Жоба жүктелді!",
+    gh_title="GitHub Gist — Сақтау / Жүктеу",
+    gh_token="GitHub Personal Access Token",
+    gh_save="☁️ Gist-ке сақтау", gh_load="📥 Gist-тен жүктеу",
+    gh_url="Gist URL", gh_saved="✅ Gist-ке сақталды!",
+    gh_loaded="✅ Gist-тен жүктелді!", gh_err="GitHub қатесі",
+    gh_need_req="Орнату: pip install requests",
+    warn_title="⚠️ Мақала атауын енгізіңіз.",
+    completeness="Мақала толықтығы",
+    success_gen="✅ Мақала сәтті жасалды!", downloading="Құжат дайындалуда…",
+    word_count="Сөз саны", add_btn="Қосу", del_btn="Жою",
+    jrn_ph="мыс., Remote Sensing, Catena",
+    kw_ph="мыс., ГАЖ, қашықтықтан зондтау",
+    welcome="Қош келдіңіз",
+    preview="📄 Алдын ала қарау", sec_editor="✍️ Бөлім редакторы",
+),
 }
 
-USERS = {
-    "admin": {"password": "admin123", "name": "Kanat Samarkhanov", "role": "Researcher"},
-    "demo":  {"password": "demo2024", "name": "Demo User",          "role": "Student"},
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def t(key: str) -> str:
     lang = st.session_state.get("lang", "🇬🇧 English")
     return TR.get(lang, TR["🇬🇧 English"]).get(key, key)
@@ -211,130 +339,256 @@ def t(key: str) -> str:
 def wc(text: str) -> int:
     return len(re.findall(r"\w+", text)) if text else 0
 
-def nav_steps():
-    return [t("nav_info"), t("nav_sections"), t("nav_figures"),
-            t("nav_refs"), t("nav_generate")]
-
-def safe_filename(title: str) -> str:
+def sfn(title: str) -> str:
     return re.sub(r"[^\w\s-]", "", title)[:50].strip().replace(" ", "_") or "article"
 
-# ─────────────────────────────────────────────────────────────────────────────
+def workflow_pages() -> list:
+    return [t("nav_info"), t("nav_sec"), t("nav_fig"),
+            t("nav_tbl"), t("nav_form"), t("nav_ref"), t("nav_gen")]
+
+# ════════════════════════════════════════════════════════════════════════════
 # SESSION STATE
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def init_state():
-    d = {
-        "logged_in": False, "username": "",
+    defaults = {
+        "logged_in": False, "username": "", "user_data": {},
+        "auth_mode": "login",          # "login" | "register"
         "lang": "🇬🇧 English", "dark": True,
         "page": "📄 Article Info", "cite_style": "APA 7th",
-        # article fields
+        # article
         "art_title": "", "authors": "", "affiliation": "",
         "journal": "", "keywords": "", "abstract": "", "art_type_idx": 0,
         # sections
         "intro": "", "methods": "", "results": "", "discussion": "", "conclusion": "",
         # collections
-        "figures": [], "tables": [], "refs": [],
+        "figures": [], "tables": [], "formulas": [], "refs": [],
+        # github
+        "gh_token": "",
     }
-    for k, v in d.items():
+    for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 init_state()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CSS THEME
-# ─────────────────────────────────────────────────────────────────────────────
-def css(dark=True):
+# ════════════════════════════════════════════════════════════════════════════
+# CSS  (light / dark — fixed input colors, button colors, labels)
+# ════════════════════════════════════════════════════════════════════════════
+def inject_css(dark: bool = True):
     if dark:
         bg="#0f172a"; sbg="#1e293b"; cbg="#1e293b"; brd="#334155"
         fg="#f1f5f9"; sub="#94a3b8"; acc="#3b82f6"; acc2="#2563eb"
-        ibg="#0f172a"; mbg="#162032"
+        ibg="#0f172a"; mbg="#162032"; btn_text="white"
     else:
-        bg="#f8fafc"; sbg="#ffffff"; cbg="#ffffff"; brd="#e2e8f0"
-        fg="#0f172a"; sub="#64748b"; acc="#2563eb"; acc2="#1d4ed8"
-        ibg="#f1f5f9"; mbg="#eef2ff"
+        bg="#f0f4f8"; sbg="#ffffff"; cbg="#ffffff"; brd="#cbd5e1"
+        fg="#0f172a"; sub="#475569"; acc="#2563eb"; acc2="#1d4ed8"
+        ibg="#ffffff"; mbg="#eef2ff"; btn_text="white"
 
     st.markdown(f"""<style>
-html,body,[data-testid="stAppViewContainer"]{{background:{bg}!important;color:{fg}!important;font-family:'Inter','Segoe UI',sans-serif;}}
+/* ── base ── */
+html,body,[data-testid="stAppViewContainer"]{{
+    background:{bg}!important; color:{fg}!important;
+    font-family:'Inter','Segoe UI',sans-serif;
+}}
 [data-testid="stSidebar"]{{background:{sbg}!important;border-right:1px solid {brd};}}
-[data-testid="stSidebar"] *{{color:{fg}!important;}}
-textarea,input,.stTextInput>div>input{{background:{ibg}!important;color:{fg}!important;border:1px solid {brd}!important;border-radius:8px!important;}}
-/* metric card */
-.mc{{background:{mbg};border:1px solid {brd};border-radius:12px;padding:14px 18px;text-align:center;}}
+
+/* ── LABELS (fixes invisible text in light mode) ── */
+label, [data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] span,
+.stRadio label p, .stCheckbox label p,
+[data-testid="stMarkdownContainer"] p {{
+    color:{fg}!important;
+}}
+
+/* ── INPUTS (critical light-mode fix) ── */
+.stTextInput input,
+.stTextArea textarea,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea {{
+    background:{ibg}!important; color:{fg}!important;
+    border:1px solid {brd}!important; border-radius:8px!important;
+    caret-color:{fg}!important;
+}}
+/* placeholder */
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {{color:{sub}!important;}}
+
+/* ── SELECT BOXES ── */
+[data-baseweb="select"] [role="combobox"],
+[data-baseweb="select"] [data-value],
+[data-baseweb="select"] span {{
+    color:{fg}!important; background:{ibg}!important;
+}}
+[data-baseweb="popover"] li span {{color:{fg}!important;}}
+
+/* ── BUTTONS (fixes black buttons in light mode) ── */
+.stButton>button {{
+    background:linear-gradient(135deg,{acc2},{acc})!important;
+    color:{btn_text}!important; border:none!important;
+    border-radius:8px!important; font-weight:600!important;
+    transition:all .2s ease;
+}}
+.stButton>button:hover{{transform:translateY(-1px);box-shadow:0 4px 15px rgba(37,99,235,.4)!important;}}
+.stDownloadButton>button {{
+    background:#059669!important; color:white!important;
+    border:none!important; border-radius:8px!important; font-weight:600!important;
+}}
+.stDownloadButton>button:hover{{background:#047857!important;}}
+/* secondary / danger buttons */
+button[kind="secondary"]{{
+    background:{mbg}!important; color:{fg}!important;
+    border:1px solid {brd}!important;
+}}
+
+/* ── FORM SUBMIT ── */
+[data-testid="stFormSubmitButton"]>button{{
+    background:linear-gradient(135deg,{acc2},{acc})!important;
+    color:white!important; border:none!important; border-radius:8px!important;
+    font-weight:700!important; width:100%;
+}}
+
+/* ── TABS ── */
+[data-baseweb="tab"]{{background:transparent!important;color:{sub}!important;}}
+[aria-selected="true"][data-baseweb="tab"]{{
+    color:{acc}!important; border-bottom:2px solid {acc}!important;
+}}
+
+/* ── EXPANDER ── */
+[data-testid="stExpander"]{{background:{cbg}!important;border:1px solid {brd}!important;border-radius:10px!important;}}
+[data-testid="stExpander"] summary span{{color:{fg}!important;}}
+
+/* ── METRIC CARD ── */
+.mc{{background:{mbg};border:1px solid {brd};border-radius:12px;
+     padding:14px 18px;text-align:center;}}
 .mv{{font-size:1.8rem;font-weight:800;color:{acc};}}
-.ml{{font-size:0.75rem;color:{sub};margin-top:2px;}}
-/* preview */
-.pv{{background:{cbg};border:1px solid {brd};border-radius:12px;padding:24px 28px;min-height:500px;font-family:'Times New Roman',serif;line-height:1.8;}}
-.pt{{font-size:1.25rem;font-weight:700;text-align:center;color:{fg};}}
-.pa{{text-align:center;color:{sub};font-size:0.88rem;margin-bottom:16px;}}
-.ph{{font-weight:700;color:{acc};border-bottom:1px solid {brd};padding-bottom:3px;margin-top:14px;font-size:1rem;}}
-.pab{{background:{mbg};border-left:4px solid {acc};padding:10px 14px;border-radius:0 8px 8px 0;margin:10px 0;font-size:0.88rem;color:{sub};}}
-/* section card */
-.sc{{background:{cbg};border:1px solid {brd};border-radius:12px;padding:18px;margin-bottom:14px;}}
-/* ref item */
-.ri{{background:{cbg};border:1px solid {brd};border-radius:8px;padding:10px 14px;margin-bottom:7px;font-size:0.84rem;}}
+.ml{{font-size:0.74rem;color:{sub};margin-top:2px;}}
+
+/* ── PREVIEW PANEL ── */
+.pv{{background:{cbg};border:1px solid {brd};border-radius:12px;
+     padding:24px 28px;font-family:'Times New Roman',serif;line-height:1.8;}}
+.pt{{font-size:1.2rem;font-weight:700;text-align:center;color:{fg};}}
+.pa{{text-align:center;color:{sub};font-size:0.86rem;margin-bottom:12px;}}
+.ph{{font-weight:700;color:{acc};border-bottom:1px solid {brd};
+     padding-bottom:3px;margin-top:14px;font-size:0.98rem;}}
+.pab{{background:{mbg};border-left:4px solid {acc};padding:10px 14px;
+      border-radius:0 8px 8px 0;margin:10px 0;font-size:0.86rem;color:{sub};}}
+
+/* ── REFERENCE ITEM ── */
+.ri{{background:{cbg};border:1px solid {brd};border-radius:8px;
+     padding:10px 14px;margin-bottom:6px;font-size:0.83rem;color:{fg};}}
 .rn{{color:{acc};font-weight:700;}}
-/* fab */
-.fab{{position:fixed;bottom:28px;right:28px;z-index:9999;background:linear-gradient(135deg,{acc2},{acc});color:white!important;padding:14px 26px;border-radius:50px;font-weight:700;font-size:0.95rem;box-shadow:0 8px 30px rgba(37,99,235,.5);cursor:pointer;border:none;}}
-/* stepper */
-.stp{{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}}
-.si{{padding:5px 12px;border-radius:20px;font-size:0.75rem;font-weight:600;border:1px solid {brd};color:{sub};white-space:nowrap;}}
+
+/* ── FAB ── */
+.fab{{position:fixed;bottom:28px;right:28px;z-index:9999;
+      background:linear-gradient(135deg,{acc2},{acc});color:white!important;
+      padding:13px 24px;border-radius:50px;font-weight:700;font-size:0.93rem;
+      box-shadow:0 8px 30px rgba(37,99,235,.5);cursor:pointer;border:none;}}
+
+/* ── STEPPER ── */
+.stp{{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}}
+.si{{padding:5px 12px;border-radius:20px;font-size:0.74rem;font-weight:600;
+     border:1px solid {brd};color:{sub};white-space:nowrap;}}
 .sa{{background:{acc};color:white!important;border-color:{acc};}}
 .sd{{background:#10b981;color:white!important;border-color:#10b981;}}
-/* topbar */
-.tb{{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid {brd};margin-bottom:20px;}}
-.tt{{font-size:1.3rem;font-weight:800;color:{fg};}}
-/* login */
-.lc{{max-width:420px;margin:80px auto;background:{cbg};border:1px solid {brd};border-radius:20px;padding:44px 36px;box-shadow:0 20px 60px rgba(0,0,0,.35);}}
-/* sidebar quick stats */
-.qs{{font-size:0.73rem;padding:3px 8px;border-radius:6px;font-weight:700;display:inline-block;margin:2px;}}
+
+/* ── TOPBAR ── */
+.tb{{display:flex;justify-content:space-between;align-items:center;
+     padding-bottom:10px;border-bottom:1px solid {brd};margin-bottom:18px;}}
+.tt{{font-size:1.25rem;font-weight:800;color:{fg};}}
+
+/* ── LOGIN CARD ── */
+.lc{{max-width:430px;margin:60px auto;background:{cbg};border:1px solid {brd};
+     border-radius:20px;padding:40px 36px;box-shadow:0 20px 60px rgba(0,0,0,.25);}}
+
+/* ── FORMULA PREVIEW BOX ── */
+.fb{{background:{mbg};border:1px solid {brd};border-radius:10px;
+     padding:16px;text-align:center;margin:8px 0;}}
+
+/* ── QUICK STATS BADGE ── */
+.qs{{font-size:0.72rem;padding:2px 8px;border-radius:6px;font-weight:700;display:inline-block;margin:2px;}}
+
+/* hide Streamlit chrome */
 footer{{visibility:hidden;}} #MainMenu{{visibility:hidden;}} .stDeployButton{{display:none;}}
 </style>""", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LOGIN
-# ─────────────────────────────────────────────────────────────────────────────
-def page_login():
-    css(dark=True)
-    _, mid, _ = st.columns([1, 1.1, 1])
+# ════════════════════════════════════════════════════════════════════════════
+# LOGIN + REGISTER PAGE
+# ════════════════════════════════════════════════════════════════════════════
+def auth_page():
+    inject_css(dark=True)
+    _, mid, _ = st.columns([1, 1.15, 1])
     with mid:
-        st.markdown("""<div class="lc">
-  <div style="text-align:center;margin-bottom:24px;">
-    <div style="font-size:3rem;">🧠</div>
-    <h2 style="margin:6px 0 2px;font-weight:900;color:#3b82f6;">ArticleAI</h2>
-    <p style="color:#94a3b8;margin:0;font-size:0.88rem;">Research Writing Platform</p>
-  </div></div>""", unsafe_allow_html=True)
+        mode = st.session_state.auth_mode
 
-        with st.form("lf"):
-            u = st.text_input("👤 Username", placeholder="admin")
-            p = st.text_input("🔑 Password", type="password", placeholder="••••••••")
-            if st.form_submit_button("Sign In →", use_container_width=True):
-                if u in USERS and USERS[u]["password"] == p:
+        st.markdown(f"""<div class="lc">
+<div style="text-align:center;margin-bottom:22px;">
+  <div style="font-size:2.8rem;">📝</div>
+  <h2 style="margin:6px 0 2px;font-weight:900;color:#3b82f6;">Smart Article</h2>
+  <p style="color:#94a3b8;margin:0;font-size:0.86rem;">Research Writing Platform</p>
+</div></div>""", unsafe_allow_html=True)
+
+        # ── TAB toggle ──
+        tab_login, tab_reg = st.tabs([t("sign_in"), t("register")])
+
+        # ── LOGIN ──
+        with tab_login:
+            with st.form("lf"):
+                uname = st.text_input(f"👤 {t('username')}", placeholder="admin")
+                pw    = st.text_input(f"🔑 {t('password')}", type="password")
+                ok    = st.form_submit_button(t("login_btn"), use_container_width=True)
+            if ok:
+                success, udata = do_login(uname, pw)
+                if success:
                     st.session_state.logged_in = True
-                    st.session_state.username  = u
+                    st.session_state.username  = uname
+                    st.session_state.user_data = udata
                     st.rerun()
                 else:
-                    st.error("❌ Invalid credentials. Try: admin / admin123")
+                    st.error(f"❌ {t('login_err')}")
+            st.markdown(
+                f'<p style="text-align:center;color:#64748b;font-size:0.78rem;">'
+                f'Demo: <b style="color:#94a3b8;">admin</b> / <b style="color:#94a3b8;">admin123</b></p>',
+                unsafe_allow_html=True)
 
-        st.markdown("""<div style="text-align:center;margin-top:14px;color:#64748b;font-size:0.78rem;">
-Demo: <b style="color:#94a3b8;">admin</b> / <b style="color:#94a3b8;">admin123</b></div>""",
-        unsafe_allow_html=True)
+        # ── REGISTER ──
+        with tab_reg:
+            with st.form("rf"):
+                r_uname = st.text_input(f"👤 {t('username')}", placeholder="john_doe", key="ru")
+                r_name  = st.text_input(f"🙍 {t('full_name')}", placeholder="John Doe", key="rn")
+                r_email = st.text_input(f"📧 {t('email')}", placeholder="john@uni.kz", key="re")
+                r_role  = st.selectbox(f"🎓 {t('role')}", t("roles"), key="rr")
+                r_pw    = st.text_input(f"🔑 {t('password')}", type="password", key="rp")
+                r_pw2   = st.text_input(f"🔑 {t('confirm_pw')}", type="password", key="rp2")
+                r_ok    = st.form_submit_button(t("reg_btn"), use_container_width=True)
+            if r_ok:
+                if r_pw != r_pw2:
+                    st.error(f"❌ {t('pw_mismatch')}")
+                else:
+                    ok2, code = do_register(r_uname, r_email, r_pw, r_name, r_role)
+                    if ok2:
+                        st.success(t("reg_ok"))
+                    else:
+                        msg = t(code) if code in ("username_taken","email_taken",
+                                                   "pw_short","uname_short") else code
+                        st.error(f"❌ {msg}")
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def sidebar():
     with st.sidebar:
-        st.markdown(f"""<div style="font-size:1.45rem;font-weight:900;color:#3b82f6;">🧠 {t('app_title')}</div>
-<div style="font-size:0.72rem;color:#64748b;margin-bottom:16px;">{t('tagline')}</div>""",
-        unsafe_allow_html=True)
+        lang = st.session_state.lang
+        st.markdown(
+            f'<div style="font-size:1.4rem;font-weight:900;color:#3b82f6;">📝 Smart Article</div>'
+            f'<div style="font-size:0.7rem;color:#64748b;margin-bottom:14px;">{t("tagline")}</div>',
+            unsafe_allow_html=True)
         st.divider()
 
-        # Language selector
+        # Language
         langs = list(TR.keys())
-        sel = st.selectbox("🌍", langs,
-                           index=langs.index(st.session_state.lang),
-                           label_visibility="collapsed")
-        if sel != st.session_state.lang:
+        sel = st.selectbox("🌍", langs, index=langs.index(lang),
+                           label_visibility="collapsed", key="lang_sb")
+        if sel != lang:
             st.session_state.lang = sel
             st.session_state.page = t("nav_info")
             st.rerun()
@@ -342,326 +596,471 @@ def sidebar():
         st.divider()
 
         # Navigation
-        all_pages = nav_steps() + [t("nav_settings")]
-        cur = st.session_state.page if st.session_state.page in all_pages else all_pages[0]
-        pg = st.radio("nav", all_pages, index=all_pages.index(cur),
-                      label_visibility="collapsed")
+        wf   = workflow_pages()
+        all_ = wf + [t("nav_set")]
+        cur  = st.session_state.page if st.session_state.page in all_ else all_[0]
+        pg   = st.radio("nav", all_, index=all_.index(cur),
+                        label_visibility="collapsed", key="nav_rb")
         if pg != st.session_state.page:
-            st.session_state.page = pg
-            st.rerun()
+            st.session_state.page = pg; st.rerun()
 
         st.divider()
 
         # Quick stats
-        all_text = " ".join([st.session_state.get(k,"") for k in
-                              ["intro","methods","results","discussion","conclusion","abstract"]])
-        w = wc(all_text)
-        f = len(st.session_state.figures)
-        r = len(st.session_state.refs)
-        st.markdown(f"""<div style="font-size:0.72rem;color:#64748b;margin-bottom:6px;">📊 Quick Stats</div>
-<span class="qs" style="background:#1e3a5f;color:#60a5fa;">{w} words</span>
-<span class="qs" style="background:#1c3a2e;color:#34d399;">{f} figs</span>
-<span class="qs" style="background:#3a1c1c;color:#f87171;">{r} refs</span>""",
-        unsafe_allow_html=True)
+        at = " ".join(st.session_state.get(k,"") for k in
+                      ["intro","methods","results","discussion","conclusion","abstract"])
+        w  = wc(at); f = len(st.session_state.figures)
+        tb = len(st.session_state.tables); r = len(st.session_state.refs)
+        fm = len(st.session_state.formulas)
+        st.markdown(
+            f'<div style="font-size:0.71rem;color:#64748b;margin-bottom:6px;">📊 Quick Stats</div>'
+            f'<span class="qs" style="background:#1e3a5f;color:#60a5fa;">{w} words</span>'
+            f'<span class="qs" style="background:#1c3a2e;color:#34d399;">{f} figs</span>'
+            f'<span class="qs" style="background:#3a1c1c;color:#f87171;">{r} refs</span>'
+            f'<span class="qs" style="background:#2d1b4e;color:#c084fc;">{fm} forms</span>',
+            unsafe_allow_html=True)
 
         st.divider()
 
-        # User + logout
-        u = USERS.get(st.session_state.username, {})
-        st.markdown(f"""<div style="font-size:0.8rem;color:#94a3b8;">
-👤 <b style="color:#f1f5f9;">{u.get('name','User')}</b><br>
-<span style="color:#64748b;">{u.get('role','')}</span></div>""", unsafe_allow_html=True)
-
+        ud = st.session_state.user_data
+        st.markdown(
+            f'<div style="font-size:0.78rem;color:#94a3b8;">👤 '
+            f'<b style="color:#f1f5f9;">{ud.get("name", st.session_state.username)}</b><br>'
+            f'<span style="color:#64748b;">{ud.get("role","")}</span></div>',
+            unsafe_allow_html=True)
         if st.button(f"🚪 {t('logout')}", use_container_width=True):
-            st.session_state.logged_in = False
-            st.rerun()
+            add_log("logout", st.session_state.username)
+            st.session_state.logged_in = False; st.rerun()
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # STEPPER + STATS ROW
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def stepper():
-    steps = nav_steps()
-    if st.session_state.page not in steps:
-        return
-    ci = steps.index(st.session_state.page)
+    wf = workflow_pages()
+    if st.session_state.page not in wf: return
+    ci = wf.index(st.session_state.page)
     html = ""
-    for i, s in enumerate(steps):
+    for i, s in enumerate(wf):
         lbl = s.split(" ",1)[1] if " " in s else s
         cls = "si sd" if i < ci else ("si sa" if i == ci else "si")
         pfx = "✓ " if i < ci else ""
         html += f'<div class="{cls}">{pfx}{lbl}</div>'
-        if i < len(steps)-1:
-            html += '<div style="color:#475569;font-size:0.7rem;">›</div>'
+        if i < len(wf)-1: html += '<div style="color:#475569;font-size:0.68rem;">›</div>'
     st.markdown(f'<div class="stp">{html}</div>', unsafe_allow_html=True)
-    st.progress((ci+1)/len(steps))
-    st.caption(f"{t('step')} {ci+1} {t('of')} {len(steps)}")
+    st.progress((ci+1)/len(wf))
+    st.caption(f"{t('step')} {ci+1} {t('of_')} {len(wf)}")
 
 def stats_row():
-    all_text = " ".join([st.session_state.get(k,"") for k in
-                         ["intro","methods","results","discussion","conclusion","abstract"]])
-    w  = wc(all_text)
-    sc = sum(1 for k in ["intro","methods","results","discussion","conclusion"]
-             if st.session_state.get(k,"").strip())
-    f  = len(st.session_state.figures)
-    tb = len(st.session_state.tables)
-    r  = len(st.session_state.refs)
-
-    cols = st.columns(5)
+    at = " ".join(st.session_state.get(k,"") for k in
+                  ["intro","methods","results","discussion","conclusion","abstract"])
+    w   = wc(at)
+    sc  = sum(1 for k in ["intro","methods","results","discussion","conclusion"]
+              if st.session_state.get(k,"").strip())
+    cols = st.columns(6)
     for col, val, lbl in zip(cols,
-                              [w, sc, f, tb, r],
-                              [t("w_words"), t("w_secs"), t("w_figs"), t("w_tbls"), t("w_refs")]):
-        col.markdown(f'<div class="mc"><div class="mv">{val}</div><div class="ml">{lbl}</div></div>',
-                     unsafe_allow_html=True)
+        [w, sc, len(st.session_state.figures), len(st.session_state.tables),
+         len(st.session_state.formulas), len(st.session_state.refs)],
+        [t("w_words"),t("w_secs"),t("w_figs"),t("w_tbls"),t("w_forms"),t("w_refs")]):
+        col.markdown(
+            f'<div class="mc"><div class="mv">{val}</div><div class="ml">{lbl}</div></div>',
+            unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # PAGE: ARTICLE INFO
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def pg_info():
-    st.markdown(f'<div class="tb"><span class="tt">📄 {t("art_title")}</span></div>',
+    st.markdown(f'<div class="tb"><span class="tt">📄 {t("nav_info")}</span></div>',
                 unsafe_allow_html=True)
     stepper(); stats_row(); st.write("")
-
     L, R = st.columns(2)
+
     with L:
-        st.session_state.art_title  = st.text_input(t("art_title"),  value=st.session_state.art_title,
+        st.session_state.art_title   = st.text_input(t("title_f"),   value=st.session_state.art_title,
             placeholder="e.g. Flood Mapping in Kazakhstan Using Sentinel-1 SAR Data")
-        st.session_state.authors    = st.text_input(t("authors"),    value=st.session_state.authors,
-            placeholder="Samarkhanov K., Smith J.")
-        st.session_state.affiliation= st.text_area(t("affiliation"), value=st.session_state.affiliation,
+        st.session_state.authors     = st.text_input(t("authors_f"), value=st.session_state.authors,
+            placeholder="Samarkhanov K., Smith J., Doe A.")
+        st.session_state.affiliation = st.text_area(t("affil_f"),    value=st.session_state.affiliation,
             height=70, placeholder="Institute of Geography, Almaty, Kazakhstan")
-        st.session_state.journal    = st.text_input(t("journal"),    value=st.session_state.journal,
+        st.session_state.journal     = st.text_input(t("journal_f"), value=st.session_state.journal,
             placeholder=t("jrn_ph"))
-        art_types = TR[st.session_state.lang]["art_types"]
-        idx = min(st.session_state.art_type_idx, len(art_types)-1)
-        sel = st.selectbox(t("art_type"), art_types, index=idx)
-        st.session_state.art_type_idx = art_types.index(sel)
+        atypes = t("art_types")
+        idx    = min(st.session_state.art_type_idx, len(atypes)-1)
+        sel    = st.selectbox(t("art_type_f"), atypes, index=idx)
+        st.session_state.art_type_idx = atypes.index(sel)
 
     with R:
-        st.session_state.keywords = st.text_input(t("keywords"), value=st.session_state.keywords,
+        st.session_state.keywords = st.text_input(t("keywords_f"), value=st.session_state.keywords,
             placeholder=t("kw_ph"))
-        st.session_state.abstract = st.text_area(t("abstract"), value=st.session_state.abstract,
-            height=190, placeholder="Write your abstract here (150–300 words)…")
+        st.session_state.abstract = st.text_area(t("abstract_f"),  value=st.session_state.abstract,
+            height=200, placeholder="Write your abstract here (150–300 words)…")
         w = wc(st.session_state.abstract)
         color = "#10b981" if 150 <= w <= 300 else ("#f59e0b" if w > 0 else "#64748b")
         st.markdown(f'<span style="color:{color};font-size:0.78rem;">📝 {t("word_count")}: {w}</span>',
                     unsafe_allow_html=True)
         st.markdown("---")
-        # mini preview card
-        ab_snip = st.session_state.abstract[:280] + ("…" if len(st.session_state.abstract)>280 else "")
-        ab_html = f'<div class="pab"><b>Abstract:</b> {ab_snip}</div>' if st.session_state.abstract else ""
-        kw_html = (f'<div style="font-size:0.78rem;color:#64748b;margin-top:6px;">'
+        ab = st.session_state.abstract
+        ab_html = (f'<div class="pab"><b>Abstract:</b> {ab[:280]}{"…" if len(ab)>280 else ""}</div>'
+                   if ab else "")
+        kw_html = (f'<div style="font-size:0.77rem;color:#64748b;margin-top:6px;">'
                    f'<b>Keywords:</b> {st.session_state.keywords}</div>'
                    if st.session_state.keywords else "")
-        st.markdown(f"""<div class="pv" style="min-height:auto;padding:18px;">
-  <div class="pt">{st.session_state.art_title or "—"}</div>
-  <div class="pa">{st.session_state.authors or "—"}</div>
-  <div class="pa" style="font-size:0.8rem;">{st.session_state.affiliation or ""}</div>
-  {ab_html}{kw_html}
-</div>""", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="pv" style="min-height:auto;padding:18px;">'
+            f'<div class="pt">{st.session_state.art_title or "—"}</div>'
+            f'<div class="pa">{st.session_state.authors or "—"}</div>'
+            f'<div class="pa" style="font-size:0.8rem;">{st.session_state.affiliation or ""}</div>'
+            f'{ab_html}{kw_html}</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # PAGE: SECTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def pg_sections():
-    st.markdown(f'<div class="tb"><span class="tt">✍️ {t("nav_sections")}</span></div>',
+    st.markdown(f'<div class="tb"><span class="tt">✍️ {t("nav_sec")}</span></div>',
                 unsafe_allow_html=True)
     stepper(); stats_row(); st.write("")
-
     L, R = st.columns(2, gap="large")
-    sec_keys   = ["intro","methods","results","discussion","conclusion"]
-    sec_labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
+
+    keys   = ["intro","methods","results","discussion","conclusion"]
+    labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
 
     with L:
         st.subheader(t("sec_editor"))
-        tabs = st.tabs(sec_labels)
-        for tab, key, label in zip(tabs, sec_keys, sec_labels):
+        tabs = st.tabs(labels)
+        for tab, k, lbl in zip(tabs, keys, labels):
             with tab:
                 up = st.file_uploader(t("upload_docx"), type=["docx","txt"],
-                                      key=f"up_{key}", label_visibility="collapsed")
+                                      key=f"up_{k}", label_visibility="collapsed")
                 if up:
                     if up.name.endswith(".txt"):
-                        st.session_state[key] = up.read().decode("utf-8", errors="ignore")
+                        st.session_state[k] = up.read().decode("utf-8", errors="ignore")
                     elif up.name.endswith(".docx") and DOCX_OK:
                         try:
                             doc = Document(BytesIO(up.read()))
-                            st.session_state[key] = "\n".join(p.text for p in doc.paragraphs)
-                        except Exception:
-                            st.warning("Could not parse DOCX.")
-
-                st.session_state[key] = st.text_area(
-                    label, value=st.session_state[key],
-                    height=290, key=f"ed_{key}",
-                    label_visibility="collapsed",
-                    placeholder=f"Write the {label} section here…")
-                st.caption(f"📝 {t('word_count')}: {wc(st.session_state[key])}")
+                            st.session_state[k] = "\n".join(p.text for p in doc.paragraphs)
+                        except Exception: st.warning("Cannot parse DOCX.")
+                st.session_state[k] = st.text_area(
+                    lbl, value=st.session_state[k], height=290,
+                    key=f"ed_{k}", label_visibility="collapsed",
+                    placeholder=f"Write {lbl} here…")
+                st.caption(f"📝 {t('word_count')}: {wc(st.session_state[k])}")
 
     with R:
         st.subheader(t("preview"))
         parts = [f'<div class="pt">{st.session_state.art_title or "—"}</div>',
                  f'<div class="pa">{st.session_state.authors or "—"}</div>']
         if st.session_state.abstract:
-            ab = st.session_state.abstract[:400] + ("…" if len(st.session_state.abstract)>400 else "")
-            parts.append(f'<div class="pab"><b>Abstract:</b> {ab}</div>')
-        for key, lbl in zip(sec_keys, sec_labels):
-            c = st.session_state.get(key,"")
+            ab = st.session_state.abstract
+            parts.append(f'<div class="pab"><b>Abstract:</b> {ab[:350]}{"…" if len(ab)>350 else ""}</div>')
+        for k, lbl in zip(keys, labels):
+            c = st.session_state.get(k,"")
             if c:
-                snip = c[:500] + ("…" if len(c)>500 else "")
-                parts.append(f'<div class="ph">{lbl}</div><p style="font-size:0.86rem;">{snip}</p>')
+                parts.append(f'<div class="ph">{lbl}</div>'
+                             f'<p style="font-size:0.84rem;">{c[:500]}{"…" if len(c)>500 else ""}</p>')
         st.markdown(f'<div class="pv">{"".join(parts)}</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PAGE: FIGURES & TABLES
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: FIGURES  (отдельная страница)
+# ════════════════════════════════════════════════════════════════════════════
 def pg_figures():
     st.markdown(f'<div class="tb"><span class="tt">🖼️ {t("fig_mgr")}</span></div>',
                 unsafe_allow_html=True)
     stepper(); stats_row(); st.write("")
-
     L, R = st.columns(2, gap="large")
 
     with L:
-        st.subheader(f"🖼️ {t('add_fig')}")
-        with st.form("ff", clear_on_submit=True):
-            fn  = st.text_input(t("fig_num"), placeholder="1")
-            fc  = st.text_input(t("fig_caption"), placeholder="Map of study area, Kazakhstan")
-            fup = st.file_uploader(t("upload_fig"), type=["png","jpg","jpeg","tif","svg"])
-            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and fc:
-                st.session_state.figures.append({
-                    "number": fn or str(len(st.session_state.figures)+1),
-                    "caption": fc,
-                    "image": fup.read() if fup else None,
-                    "name":  fup.name  if fup else None,
-                })
+        st.subheader(f"➕ {t('add_fig')}")
+            with st.form("ff", clear_on_submit=True):
+                fn  = st.text_input(t("fig_no"), placeholder="1")
+                fc  = st.text_input(t("fig_cap"), placeholder="Map of study area, Kazakhstan")
+                fup = st.file_uploader(t("upload_fig"), type=["png","jpg","jpeg","tif","svg"])
+                if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and fc:
+                    st.session_state.figures.append({
+                        "number":  fn or str(len(st.session_state.figures)+1),
+                        "caption": fc,
+                        "image":   fup.read() if fup else None,
+                        "name":    fup.name   if fup else None,
+                    })
                 st.success("✅ Figure added")
-        st.divider()
+
+    with R:
+        st.subheader(f"📋 {t('no_figs') if not st.session_state.figures else 'Figure List'}")
         if not st.session_state.figures:
             st.info(t("no_figs"))
         else:
             for i, fig in enumerate(st.session_state.figures):
-                with st.expander(f"Fig. {fig['number']} — {fig['caption']}"):
+                with st.expander(f"🖼️ Fig. {fig['number']} — {fig['caption']}"):
                     if fig.get("image"):
                         st.image(fig["image"], use_container_width=True)
+                    st.caption(f"📄 {fig.get('name','—')}")
                     if st.button(f"🗑️ {t('del_btn')}", key=f"df{i}"):
                         st.session_state.figures.pop(i); st.rerun()
 
-    with R:
-        st.subheader(f"📊 {t('add_tbl')}")
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: TABLES  (отдельная страница)
+# ════════════════════════════════════════════════════════════════════════════
+def pg_tables():
+    st.markdown(f'<div class="tb"><span class="tt">📊 {t("tbl_mgr")}</span></div>',
+                unsafe_allow_html=True)
+    stepper(); stats_row(); st.write("")
+    L, R = st.columns(2, gap="large")
+
+    with L:
+        st.subheader(f"➕ {t('add_tbl')}")
         with st.form("tf", clear_on_submit=True):
-            tn = st.text_input(t("tbl_num"), placeholder="1")
-            tc = st.text_input(t("tbl_caption"), placeholder="Summary statistics of study area")
-            td = st.text_area(t("tbl_data"), height=110,
-                              placeholder="Col1,Col2,Col3\nVal1,Val2,Val3")
+            tn = st.text_input(t("tbl_no"), placeholder="1")
+            tc = st.text_input(t("tbl_cap"), placeholder="Summary statistics of study area")
+            td = st.text_area(t("tbl_data"), height=130,
+                              placeholder="Col1,Col2,Col3\nVal1,Val2,Val3\nVal4,Val5,Val6")
             if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and tc:
                 st.session_state.tables.append({
-                    "number": tn or str(len(st.session_state.tables)+1),
+                    "number":  tn or str(len(st.session_state.tables)+1),
                     "caption": tc, "data": td,
                 })
                 st.success("✅ Table added")
-        st.divider()
+
+    with R:
+        st.subheader(f"📋 Table List")
         if not st.session_state.tables:
             st.info(t("no_tbls"))
         else:
             for i, tbl in enumerate(st.session_state.tables):
-                with st.expander(f"Table {tbl['number']} — {tbl['caption']}"):
-                    if tbl.get("data") and PANDAS_OK:
+                with st.expander(f"📊 Table {tbl['number']} — {tbl['caption']}"):
+                    if tbl.get("data") and PD_OK:
                         try:
                             df = pd.read_csv(io.StringIO(tbl["data"]))
                             st.dataframe(df, use_container_width=True)
                         except Exception:
                             st.text(tbl["data"])
+                    elif tbl.get("data"):
+                        st.text(tbl["data"])
                     if st.button(f"🗑️ {t('del_btn')}", key=f"dt{i}"):
                         st.session_state.tables.pop(i); st.rerun()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# REFERENCE FORMATTER
-# ─────────────────────────────────────────────────────────────────────────────
-def fmt_ref(ref: dict, style: str, n: int) -> str:
-    au = ref.get("authors",""); yr = ref.get("year",""); ti = ref.get("title","")
-    jn = ref.get("journal",""); vo = ref.get("volume",""); pg = ref.get("pages","")
-    doi = f" https://doi.org/{ref['doi']}" if ref.get("doi") else ""
-    if "Vancouver" in style or "Ванкувер" in style:
-        return f"{n}. {au}. {ti}. *{jn}*. {yr};{vo}:{pg}.{doi}"
-    elif "APA" in style:
-        return f"{au} ({yr}). {ti}. *{jn}*, *{vo}*, {pg}.{doi}"
-    elif "IEEE" in style:
-        return f"[{n}] {au}, \"{ti},\" *{jn}*, vol. {vo}, pp. {pg}, {yr}.{doi}"
-    else:  # Harvard / Гарвард / Чикаго
-        return f"{au} {yr}, '{ti}', *{jn}*, vol. {vo}, pp. {pg}.{doi}"
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: FORMULAS  (новая страница)
+# ════════════════════════════════════════════════════════════════════════════
+def pg_formulas():
+    st.markdown(f'<div class="tb"><span class="tt">🧮 {t("form_mgr")}</span></div>',
+                unsafe_allow_html=True)
+    stepper(); stats_row(); st.write("")
+    L, R = st.columns(2, gap="large")
 
-# ─────────────────────────────────────────────────────────────────────────────
+    with L:
+        st.subheader(f"➕ {t('add_form')}")
+        with st.form("formf", clear_on_submit=True):
+            fnum  = st.text_input(t("form_no"), placeholder="1")
+            flatex= st.text_input(t("form_latex"),
+                                  placeholder=r"Q = \frac{1}{n} A R^{2/3} S^{1/2}")
+            fdesc = st.text_area(t("form_desc"), height=80,
+                                 placeholder="Manning's equation for open channel flow")
+            add_f = st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True)
+            if add_f and flatex:
+                st.session_state.formulas.append({
+                    "number":  fnum or str(len(st.session_state.formulas)+1),
+                    "latex":   flatex,
+                    "desc":    fdesc,
+                })
+                st.success("✅ Formula added")
+
+        # LaTeX Quick Reference
+        st.markdown("---")
+        st.markdown("**📖 LaTeX Quick Reference**")
+        ref_data = {
+            "Description": [
+                "Fraction", "Square root", "Subscript/Superscript",
+                "Integral", "Sum", "Greek letters",
+                "Manning's eq.", "Water balance", "Nash-Sutcliffe"
+            ],
+            "LaTeX code": [
+                r"\frac{a}{b}", r"\sqrt{x}", r"x_{i}^{2}",
+                r"\int_{a}^{b} f(x)dx", r"\sum_{i=1}^{n} x_i",
+                r"\alpha, \beta, \Delta",
+                r"Q = \frac{1}{n} A R^{2/3} S^{1/2}",
+                r"P = ET + \Delta S + Q",
+                r"NSE = 1 - \frac{\sum(Q_o-Q_s)^2}{\sum(Q_o-\bar{Q}_o)^2}"
+            ]
+        }
+        if PD_OK:
+            st.dataframe(pd.DataFrame(ref_data), use_container_width=True, hide_index=True)
+
+    with R:
+        st.subheader(f"👁️ {t('form_preview')}")
+        if not st.session_state.formulas:
+            st.info(t("no_forms"))
+        else:
+            for i, frm in enumerate(st.session_state.formulas):
+                with st.expander(f"🧮 ({frm['number']}) — {frm['desc'][:50] if frm['desc'] else frm['latex'][:40]}"):
+                    # Rendered preview
+                    try:
+                        st.latex(frm["latex"])
+                    except Exception:
+                        st.code(frm["latex"], language="latex")
+                    if frm.get("desc"):
+                        st.caption(f"📝 {frm['desc']}")
+                    st.markdown(f'`({frm["number"]})` — LaTeX: `{frm["latex"]}`')
+                    if st.button(f"🗑️ {t('del_btn')}", key=f"dfm{i}"):
+                        st.session_state.formulas.pop(i); st.rerun()
+
+        # Live preview input
+        st.markdown("---")
+        st.subheader("🔬 Live LaTeX Preview")
+        test_latex = st.text_input("Enter LaTeX to preview",
+                                   placeholder=r"E = mc^2",
+                                   key="latex_test")
+        if test_latex:
+            try:
+                st.latex(test_latex)
+            except Exception as e:
+                st.error(f"LaTeX error: {e}")
+
+# ════════════════════════════════════════════════════════════════════════════
+# ГОСТ 7.0.5-2008 + other citation formatters
+# ════════════════════════════════════════════════════════════════════════════
+def fmt_ref(ref: dict, style: str, n: int) -> str:
+    au  = ref.get("authors","")
+    yr  = ref.get("year","")
+    ti  = ref.get("title","")
+    jn  = ref.get("journal","")
+    vo  = ref.get("volume","")
+    no  = ref.get("number","")
+    pp  = ref.get("pages","")
+    doi = ref.get("doi","")
+    cit = ref.get("city","")
+    pub = ref.get("publisher","")
+    doi_str = f" DOI: {doi}" if doi else ""
+
+    # ── ГОСТ 7.0.5-2008 ──────────────────────────────────────────────────
+    if "ГОСТ" in style:
+        rtype = ref.get("type","")
+        if "Book" in rtype or "Книга" in rtype or "Кітап" in rtype:
+            city_pub = ""
+            if cit and pub:  city_pub = f" — {cit} : {pub}"
+            elif cit:        city_pub = f" — {cit}"
+            elif pub:        city_pub = f" — {pub}"
+            yr_str = f", {yr}" if yr else ""
+            pp_str = f". — {pp} с." if pp else ""
+            return f"{au} {ti}{city_pub}{yr_str}{pp_str}"
+        elif "Thesis" in rtype or "Диссерт" in rtype or "Диссерт" in rtype:
+            return f"{au} {ti} : дис. … канд./д-ра наук. — {cit or pub}, {yr}. — {pp} с."
+        elif "Conference" in rtype or "конференц" in rtype.lower() or "Конференц" in rtype:
+            return (f"{au} {ti} // {jn}. — {cit or pub}, {yr}. — "
+                    f"{'С. ' + pp if pp else ''}.{doi_str}")
+        else:
+            # журнальная статья (основной случай)
+            vol_str = f". — Т. {vo}" if vo else ""
+            no_str  = f", № {no}"   if no else ""
+            pp_str  = f". — С. {pp}" if pp else ""
+            return (f"{au} {ti} // {jn}. — {yr}{vol_str}{no_str}{pp_str}.{doi_str}")
+
+    # ── APA 7th ───────────────────────────────────────────────────────────
+    elif "APA" in style:
+        vol_no = f"*{vo}*" + (f"({no})" if no else "") if vo else ""
+        return f"{au} ({yr}). {ti}. *{jn}*, {vol_no}, {pp}.{doi_str}"
+
+    # ── Vancouver / Ванкувер ──────────────────────────────────────────────
+    elif "Vancouver" in style or "Ванкувер" in style:
+        return f"{n}. {au}. {ti}. {jn}. {yr};{vo}({no}):{pp}.{doi_str}"
+
+    # ── IEEE ──────────────────────────────────────────────────────────────
+    elif "IEEE" in style:
+        return f'[{n}] {au}, "{ti}," *{jn}*, vol. {vo}, no. {no}, pp. {pp}, {yr}.{doi_str}'
+
+    # ── Harvard / Гарвард / Chicago ───────────────────────────────────────
+    else:
+        return f"{au} {yr}, '{ti}', *{jn}*, vol. {vo}, no. {no}, pp. {pp}.{doi_str}"
+
+# ════════════════════════════════════════════════════════════════════════════
 # PAGE: REFERENCES
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def pg_refs():
     st.markdown(f'<div class="tb"><span class="tt">📑 {t("ref_mgr")}</span></div>',
                 unsafe_allow_html=True)
     stepper(); stats_row(); st.write("")
 
-    rt_list = TR[st.session_state.lang]["ref_types_list"]
-    cs_list = TR[st.session_state.lang]["cite_styles"]
+    rt_list = t("ref_types")
+    cs_list = t("cite_styles")
 
     L, R = st.columns(2, gap="large")
 
     with L:
         st.subheader(f"➕ {t('add_ref')}")
-        with st.form("rf", clear_on_submit=True):
+        with st.form("rff", clear_on_submit=True):
             rtype = st.selectbox(t("ref_type"), rt_list)
-            rau   = st.text_input(t("ref_authors"), placeholder="Samarkhanov K., Doe J.")
-            ryr   = st.text_input(t("ref_year"), placeholder="2024")
-            rti   = st.text_input(t("ref_title_f"), placeholder="Flood Mapping Using SAR Data")
-            rjn   = st.text_input(t("ref_journal"), placeholder="Remote Sensing")
-            c1,c2 = st.columns(2)
+            rau   = st.text_input(t("ref_au"),  placeholder="Samarkhanov K.B., Doe J.")
+            ryr   = st.text_input(t("ref_yr"),  placeholder="2024")
+            rti   = st.text_input(t("ref_ti"),  placeholder="Flood Mapping Using SAR Data")
+            rjn   = st.text_input(t("ref_jn"),  placeholder="Remote Sensing of Environment")
+            c1,c2,c3 = st.columns(3)
             rvo   = c1.text_input(t("ref_vol"), placeholder="15")
-            rpg   = c2.text_input(t("ref_pages"), placeholder="1234–1250")
+            rno   = c2.text_input(t("ref_no"),  placeholder="3")
+            rpp   = c3.text_input(t("ref_pp"),  placeholder="1234–1250")
             rdoi  = st.text_input(t("ref_doi"), placeholder="10.3390/rs15051234")
+
+            # Extra fields for ГОСТ (book/thesis)
+            show_extra = rtype in ["Book","Книга","Кітап","Thesis","Диссертация","Диссертация"]
+            if show_extra:
+                cx1, cx2 = st.columns(2)
+                rcit = cx1.text_input(t("ref_city"), placeholder="Алматы")
+                rpub = cx2.text_input(t("ref_pub"),  placeholder="Гылым")
+            else:
+                rcit = rpub = ""
+
             if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and rti:
                 st.session_state.refs.append({
                     "type": rtype, "authors": rau, "year": ryr, "title": rti,
-                    "journal": rjn, "volume": rvo, "pages": rpg, "doi": rdoi,
+                    "journal": rjn, "volume": rvo, "number": rno,
+                    "pages": rpp, "doi": rdoi, "city": rcit, "publisher": rpub,
                 })
                 st.success("✅ Reference added")
 
         st.divider()
         st.subheader(f"📥 {t('import_refs')}")
-        bib = st.text_area("BibTeX / plain text", height=110,
+        bib = st.text_area("BibTeX / plain text", height=120,
                            placeholder="Paste BibTeX or one reference per line…")
         if st.button(t("import_btn")):
             lines = [l.strip() for l in bib.split("\n") if l.strip()]
             for ln in lines:
                 st.session_state.refs.append({
                     "type":"Journal Article","authors":"","year":"",
-                    "title": ln,"journal":"","volume":"","pages":"","doi":""})
+                    "title": ln,"journal":"","volume":"","number":"",
+                    "pages":"","doi":"","city":"","publisher":""})
             st.success(f"{t('imported')} {len(lines)} {t('ref_s')}")
 
     with R:
         st.subheader(f"📋 {t('ref_list')}")
-        style = st.selectbox(t("cite_style"), cs_list, key="rs")
+        style = st.selectbox(t("cite_style_label"), cs_list, key="rs_sel")
         st.session_state.cite_style = style
+
         if not st.session_state.refs:
             st.info(t("no_refs"))
         else:
             for i, ref in enumerate(st.session_state.refs):
-                c1, c2 = st.columns([11,1])
+                c1, c2 = st.columns([11, 1])
                 c1.markdown(
-                    f'<div class="ri"><span class="rn">[{i+1}]</span> {fmt_ref(ref, style, i+1)}</div>',
+                    f'<div class="ri"><span class="rn">[{i+1}]</span> '
+                    f'{fmt_ref(ref, style, i+1)}</div>',
                     unsafe_allow_html=True)
-                if c2.button("🗑️", key=f"dr{i}"):
+                if c2.button("🗑️", key=f"dr{i}", help=t("del_btn")):
                     st.session_state.refs.pop(i); st.rerun()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DOCX GENERATOR
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# DOCX BUILDER
+# ════════════════════════════════════════════════════════════════════════════
 def build_docx() -> BytesIO:
-    doc = Document()
-    sec = doc.sections[0]
-    sec.top_margin    = Inches(1);   sec.bottom_margin = Inches(1)
-    sec.left_margin   = Inches(1.25);sec.right_margin  = Inches(1.25)
+    doc  = Document()
+    sec  = doc.sections[0]
+    sec.top_margin    = Inches(1);    sec.bottom_margin = Inches(1)
+    sec.left_margin   = Inches(1.25); sec.right_margin  = Inches(1.25)
+    BLUE = RGBColor(0x1a, 0x56, 0xdb)
 
-    BLUE = RGBColor(0x1a,0x56,0xdb)
+    def add_heading_colored(text, level=1):
+        h = doc.add_heading(text, level=level)
+        if h.runs: h.runs[0].font.color.rgb = BLUE
+        return h
 
-    # Title
-    tp = doc.add_paragraph()
-    tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = tp.add_run(st.session_state.art_title or "Untitled")
+    # Title block
+    tp = doc.add_paragraph(); tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r  = tp.add_run(st.session_state.art_title or "Untitled")
     r.bold = True; r.font.size = Pt(16); r.font.color.rgb = BLUE
 
     if st.session_state.authors:
@@ -670,65 +1069,79 @@ def build_docx() -> BytesIO:
 
     if st.session_state.affiliation:
         af = doc.add_paragraph(); af.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = af.add_run(st.session_state.affiliation)
-        r.font.size = Pt(10); r.font.color.rgb = RGBColor(0x64,0x74,0x8b)
+        r2 = af.add_run(st.session_state.affiliation)
+        r2.font.size = Pt(10); r2.font.color.rgb = RGBColor(0x64,0x74,0x8b)
 
     if st.session_state.keywords:
         kp = doc.add_paragraph(); kp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = kp.add_run(f"Keywords: {st.session_state.keywords}")
-        r.italic = True; r.font.size = Pt(10)
+        r3 = kp.add_run(f"Keywords: {st.session_state.keywords}")
+        r3.italic = True; r3.font.size = Pt(10)
 
     doc.add_paragraph()
 
+    # Abstract
     if st.session_state.abstract:
-        h = doc.add_heading("Abstract", level=2)
-        h.runs[0].font.color.rgb = BLUE
+        add_heading_colored("Abstract", 2)
         doc.add_paragraph(st.session_state.abstract)
         doc.add_paragraph()
 
-    sec_keys   = ["intro","methods","results","discussion","conclusion"]
-    sec_labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
-    for i, (k, lbl) in enumerate(zip(sec_keys, sec_labels), 1):
+    # IMRAD sections
+    keys   = ["intro","methods","results","discussion","conclusion"]
+    labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
+    for i, (k, lbl) in enumerate(zip(keys, labels), 1):
         if st.session_state.get(k,"").strip():
-            h = doc.add_heading(f"{i}. {lbl}", level=1)
-            h.runs[0].font.color.rgb = BLUE
+            add_heading_colored(f"{i}. {lbl}", 1)
             doc.add_paragraph(st.session_state[k])
+            doc.add_paragraph()
+
+    # Formulas
+    if st.session_state.formulas:
+        add_heading_colored("Formulas / Equations", 1)
+        for frm in st.session_state.formulas:
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            r4 = p.add_run(f"({frm['number']})   {frm['latex']}")
+            r4.font.name = "Cambria Math"; r4.font.size = Pt(12)
+            if frm.get("desc"):
+                dp = doc.add_paragraph(frm["desc"])
+                dp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                if dp.runs: dp.runs[0].italic = True; dp.runs[0].font.size = Pt(10)
             doc.add_paragraph()
 
     # Figures
     if st.session_state.figures:
-        doc.add_heading("Figures", level=1)
+        add_heading_colored("Figures", 1)
         for fig in st.session_state.figures:
             if fig.get("image"):
                 try: doc.add_picture(BytesIO(fig["image"]), width=Inches(4.5))
                 except Exception: pass
             cp = doc.add_paragraph(f"Figure {fig['number']}. {fig['caption']}")
             cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            if cp.runs: cp.runs[0].italic = True; cp.runs[0].font.size = Pt(9)
+            if cp.runs:
+                cp.runs[0].italic = True; cp.runs[0].font.size = Pt(9)
             doc.add_paragraph()
 
     # Tables
-    if st.session_state.tables:
+    if st.session_state.tables and PD_OK:
         for tbl in st.session_state.tables:
-            tp = doc.add_paragraph(f"Table {tbl['number']}. {tbl['caption']}")
-            if tp.runs: tp.runs[0].bold = True
-            if tbl.get("data") and PANDAS_OK:
+            tp2 = doc.add_paragraph(f"Table {tbl['number']}. {tbl['caption']}")
+            if tp2.runs: tp2.runs[0].bold = True
+            if tbl.get("data"):
                 try:
                     df = pd.read_csv(io.StringIO(tbl["data"]))
                     wt = doc.add_table(rows=len(df)+1, cols=len(df.columns))
                     wt.style = "Table Grid"
                     for ci, col in enumerate(df.columns):
-                        wt.cell(0,ci).text = str(col)
+                        wt.cell(0, ci).text = str(col)
                     for ri in range(len(df)):
                         for ci in range(len(df.columns)):
-                            wt.cell(ri+1,ci).text = str(df.iloc[ri,ci])
+                            wt.cell(ri+1, ci).text = str(df.iloc[ri, ci])
                 except Exception: pass
             doc.add_paragraph()
 
     # References
     if st.session_state.refs:
-        h = doc.add_heading("References", level=1)
-        h.runs[0].font.color.rgb = BLUE
+        add_heading_colored("References", 1)
         for i, ref in enumerate(st.session_state.refs, 1):
             p = doc.add_paragraph(fmt_ref(ref, st.session_state.cite_style, i),
                                   style="List Number")
@@ -737,175 +1150,322 @@ def build_docx() -> BytesIO:
     buf = BytesIO(); doc.save(buf); buf.seek(0)
     return buf
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# GITHUB GIST  (save / load project)
+# ════════════════════════════════════════════════════════════════════════════
+def gist_save(token: str, content: str, filename: str) -> str | None:
+    if not REQ_OK: return None
+    resp = requests.post(
+        "https://api.github.com/gists",
+        headers={"Authorization": f"token {token}",
+                 "Accept": "application/vnd.github+json"},
+        json={"description": f"Smart Article — {filename}",
+              "public": False,
+              "files": {filename: {"content": content}}},
+        timeout=15)
+    if resp.status_code == 201:
+        return resp.json()["html_url"]
+    return None
+
+def gist_load(token: str, gist_url: str) -> str | None:
+    if not REQ_OK: return None
+    gist_id = gist_url.rstrip("/").split("/")[-1]
+    resp = requests.get(
+        f"https://api.github.com/gists/{gist_id}",
+        headers={"Authorization": f"token {token}",
+                 "Accept": "application/vnd.github+json"},
+        timeout=15)
+    if resp.status_code == 200:
+        files = resp.json().get("files", {})
+        for v in files.values():
+            return v.get("content","")
+    return None
+
+# ════════════════════════════════════════════════════════════════════════════
 # PAGE: GENERATE
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def pg_generate():
-    st.markdown(f'<div class="tb"><span class="tt">🚀 {t("generate")}</span></div>',
+    st.markdown(f'<div class="tb"><span class="tt">🚀 {t("gen_title")}</span></div>',
                 unsafe_allow_html=True)
     stepper(); stats_row(); st.write("")
 
     if not st.session_state.art_title:
         st.warning(t("warn_title")); return
 
-    # Completeness meter
     done = sum(1 for k in ["intro","methods","results","discussion","conclusion"]
                if st.session_state.get(k,"").strip())
     st.markdown(f"### 📋 {t('completeness')}")
-    c1,c2,c3 = st.columns([3,1,1])
-    c1.progress(done/5, text=f"{done*20}% complete")
-    c2.metric(t("w_secs"), f"{done}/5")
-    c3.metric(t("w_refs"), len(st.session_state.refs))
+    c1,c2,c3,c4 = st.columns(4)
+    c1.progress(done/5, text=f"{done*20}%")
+    c2.metric(t("w_secs"),  f"{done}/5")
+    c3.metric(t("w_refs"),  len(st.session_state.refs))
+    c4.metric(t("w_forms"), len(st.session_state.formulas))
     st.write("")
 
-    # Full preview
+    # Full article preview
     st.markdown(f"### {t('preview')}")
-    sec_keys   = ["intro","methods","results","discussion","conclusion"]
-    sec_labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
+    keys   = ["intro","methods","results","discussion","conclusion"]
+    labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
 
-    parts = [f'<div class="pt">{st.session_state.art_title}</div>',
-             f'<div class="pa">{st.session_state.authors}</div>']
-    if st.session_state.abstract:
-        ab = st.session_state.abstract[:500] + ("…" if len(st.session_state.abstract)>500 else "")
-        parts.append(f'<div class="pab"><b>Abstract:</b> {ab}</div>')
+    parts  = [
+        f'<div class="pt">{st.session_state.art_title}</div>',
+        f'<div class="pa"><b>{st.session_state.authors}</b></div>',
+        f'<div class="pa" style="font-size:0.8rem;">{st.session_state.affiliation}</div>',
+    ]
     if st.session_state.keywords:
-        parts.append(f'<div style="font-size:0.78rem;color:#64748b;margin:6px 0;">'
+        parts.append(f'<div style="text-align:center;font-size:0.77rem;color:#64748b;">'
                      f'<b>Keywords:</b> {st.session_state.keywords}</div>')
-    for i,(k,lbl) in enumerate(zip(sec_keys, sec_labels),1):
+    if st.session_state.abstract:
+        ab = st.session_state.abstract
+        parts.append(f'<div class="pab"><b>Abstract:</b> '
+                     f'{ab[:600]}{"…" if len(ab)>600 else ""}</div>')
+
+    for i,(k,lbl) in enumerate(zip(keys,labels),1):
         c = st.session_state.get(k,"")
-        if c:
-            parts.append(f'<div class="ph">{i}. {lbl}</div>'
-                         f'<p style="font-size:0.85rem;">{c}</p>')
+        if c: parts.append(f'<div class="ph">{i}. {lbl}</div>'
+                           f'<p style="font-size:0.84rem;">{c}</p>')
+
+    if st.session_state.formulas:
+        parts.append(f'<div class="ph">Formulas</div>')
+        for frm in st.session_state.formulas:
+            parts.append(f'<p style="text-align:center;font-size:0.86rem;">'
+                         f'({frm["number"]})  <code>{frm["latex"]}</code></p>')
+
     if st.session_state.refs:
-        parts.append('<div class="ph">References</div>')
-        for i,ref in enumerate(st.session_state.refs,1):
-            parts.append(f'<p style="font-size:0.82rem;">{fmt_ref(ref,st.session_state.cite_style,i)}</p>')
+        parts.append(f'<div class="ph">References</div>')
+        cs = st.session_state.cite_style
+        for j,ref in enumerate(st.session_state.refs,1):
+            parts.append(f'<p style="font-size:0.81rem;">{fmt_ref(ref,cs,j)}</p>')
 
     st.markdown(f'<div class="pv">{"".join(parts)}</div>', unsafe_allow_html=True)
     st.write("")
 
-    # Export buttons
+    # ── Export buttons ────────────────────────────────────────────────────
     st.markdown("### 📥 Export")
+    fn = sfn(st.session_state.art_title)
+
     e1, e2, e3 = st.columns(3)
-    fn = safe_filename(st.session_state.art_title)
 
     with e1:
         if DOCX_OK:
             with st.spinner(t("downloading")):
                 buf = build_docx()
             st.download_button(t("dl_docx"), buf, f"{fn}.docx",
-                               "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                               use_container_width=True)
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True)
             st.success(t("success_gen"))
         else:
-            st.error("Install python-docx: `pip install python-docx`")
+            st.error("pip install python-docx")
 
     with e2:
-        md_lines = [f"# {st.session_state.art_title}",
-                    f"**{st.session_state.authors}**",
-                    f"*{st.session_state.affiliation}*", "",
-                    f"**Keywords:** {st.session_state.keywords}", "",
-                    f"## Abstract\n\n{st.session_state.abstract}", ""]
-        for i,(k,lbl) in enumerate(zip(sec_keys,sec_labels),1):
+        md_lines = [
+            f"# {st.session_state.art_title}",
+            f"**{st.session_state.authors}**",
+            f"*{st.session_state.affiliation}*", "",
+            f"**Keywords:** {st.session_state.keywords}", "",
+            f"## Abstract\n\n{st.session_state.abstract}", "",
+        ]
+        for i,(k,lbl) in enumerate(zip(keys,labels),1):
             if st.session_state.get(k,""):
                 md_lines += [f"## {i}. {lbl}", st.session_state[k], ""]
+        if st.session_state.formulas:
+            md_lines.append("## Formulas\n")
+            for frm in st.session_state.formulas:
+                md_lines.append(f"$$({frm['number']}) \\quad {frm['latex']}$$")
+                if frm.get("desc"): md_lines.append(f"*{frm['desc']}*")
+                md_lines.append("")
         if st.session_state.refs:
-            md_lines.append("## References")
-            for i,ref in enumerate(st.session_state.refs,1):
-                md_lines.append(fmt_ref(ref, st.session_state.cite_style, i))
+            md_lines.append("## References\n")
+            cs = st.session_state.cite_style
+            for j,ref in enumerate(st.session_state.refs,1):
+                md_lines.append(fmt_ref(ref,cs,j))
         st.download_button(t("dl_md"),
                            "\n".join(md_lines).encode("utf-8"),
                            f"{fn}.md", "text/markdown",
                            use_container_width=True)
 
     with e3:
+        # ── Explain JSON ──────────────────────────────────────────────────
+        with st.expander("ℹ️ " + ("What is Save / Load JSON?" if "English" in st.session_state.lang
+                                   else "Что такое Сохранить / Загрузить JSON?"), expanded=False):
+            st.info(t("load_json_help"))
+
         proj = {k: st.session_state.get(k,"") for k in
                 ["art_title","authors","affiliation","journal","keywords","abstract",
                  "intro","methods","results","discussion","conclusion","cite_style"]}
-        proj["refs"]   = st.session_state.refs
-        proj["tables"] = [{k2:v2 for k2,v2 in tb.items() if k2!="image"}
-                          for tb in st.session_state.tables]
+        proj["refs"]     = st.session_state.refs
+        proj["formulas"] = st.session_state.formulas
+        proj["tables"]   = [{k2:v2 for k2,v2 in tb.items()} for tb in st.session_state.tables]
         proj["exported_at"] = datetime.now().isoformat()
         st.download_button(t("save_json"),
                            json.dumps(proj, ensure_ascii=False, indent=2).encode("utf-8"),
                            f"{fn}_project.json", "application/json",
                            use_container_width=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # PAGE: SETTINGS
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def pg_settings():
-    st.markdown(f'<div class="tb"><span class="tt">⚙️ {t("settings")}</span></div>',
+    st.markdown(f'<div class="tb"><span class="tt">⚙️ {t("settings_title")}</span></div>',
                 unsafe_allow_html=True)
     st.write("")
 
-    L, R = st.columns(2)
-    with L:
-        st.subheader(f"🎨 {t('theme')}")
-        themes = TR[st.session_state.lang]["themes"]
-        choice = st.radio(t("theme"), themes,
+    T1, T2, T3 = st.tabs(["🎨 Theme & Style", "📂 Project", "☁️ GitHub Gist"])
+
+    # ── TAB 1: Theme ──────────────────────────────────────────────────────
+    with T1:
+        st.subheader(t("theme_label"))
+        themes = t("themes")
+        choice = st.radio(t("theme_label"), themes,
                           index=0 if st.session_state.dark else 1,
-                          label_visibility="collapsed")
+                          horizontal=True, label_visibility="collapsed")
         st.session_state.dark = (choice == themes[0])
 
-        st.subheader(f"📝 {t('cite_style')}")
-        cs_list = TR[st.session_state.lang]["cite_styles"]
-        cs = st.selectbox(t("cite_style"), cs_list, label_visibility="collapsed")
+        st.subheader(t("cite_style_label"))
+        cs_list = t("cite_styles")
+        cs = st.selectbox(t("cite_style_label"), cs_list,
+                          index=cs_list.index(st.session_state.cite_style)
+                          if st.session_state.cite_style in cs_list else 0,
+                          label_visibility="collapsed")
         st.session_state.cite_style = cs
 
-        st.subheader(f"🗑️ {t('reset')}")
-        if st.button(t("reset"), type="secondary"):
-            for k in ["art_title","authors","affiliation","journal","keywords","abstract",
-                      "intro","methods","results","discussion","conclusion"]:
-                st.session_state[k] = ""
-            st.session_state.figures = []
-            st.session_state.tables  = []
-            st.session_state.refs    = []
-            st.success(t("reset_ok"))
+        st.divider()
+        # User log viewer (admin only)
+        if st.session_state.username == "admin":
+            st.subheader("📋 Activity Log (admin)")
+            logs = load_logs()
+            if logs and PD_OK:
+                df_log = pd.DataFrame(logs[-50:][::-1])
+                st.dataframe(df_log, use_container_width=True, hide_index=True)
+            elif logs:
+                for entry in logs[-10:][::-1]:
+                    st.caption(f"{entry['ts']}  [{entry['event']}]  {entry['username']}  {entry.get('detail','')}")
 
-    with R:
-        st.subheader(f"📂 {t('load_json')}")
-        upf = st.file_uploader("JSON project file", type="json")
-        if upf:
-            try:
-                data = json.load(upf)
-                for f in ["art_title","authors","affiliation","journal","keywords","abstract",
-                          "intro","methods","results","discussion","conclusion",
-                          "refs","tables","cite_style"]:
-                    if f in data:
-                        st.session_state[f] = data[f]
-                st.success(t("loaded"))
-            except Exception as e:
-                st.error(f"Error: {e}")
+    # ── TAB 2: Project ────────────────────────────────────────────────────
+    with T2:
+        L2, R2 = st.columns(2)
+        with L2:
+            st.subheader(t("load_json"))
+            # Explain what JSON save/load does
+            st.info(t("load_json_help"))
+            upf = st.file_uploader("Upload JSON project file", type="json")
+            if upf:
+                try:
+                    data = json.load(upf)
+                    for f in ["art_title","authors","affiliation","journal","keywords",
+                              "abstract","intro","methods","results","discussion",
+                              "conclusion","refs","tables","formulas","cite_style"]:
+                        if f in data:
+                            st.session_state[f] = data[f]
+                    st.success(t("loaded"))
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
-# ─────────────────────────────────────────────────────────────────────────────
+        with R2:
+            st.subheader(f"🗑️ {t('reset_btn')}")
+            st.warning("This will erase all article data in the current session.")
+            if st.button(t("reset_btn"), type="secondary"):
+                for k in ["art_title","authors","affiliation","journal","keywords",
+                          "abstract","intro","methods","results","discussion","conclusion"]:
+                    st.session_state[k] = ""
+                st.session_state.figures  = []
+                st.session_state.tables   = []
+                st.session_state.refs     = []
+                st.session_state.formulas = []
+                st.success(t("reset_ok"))
+
+    # ── TAB 3: GitHub Gist ────────────────────────────────────────────────
+    with T3:
+        st.subheader(t("gh_title"))
+        st.markdown("""
+> **GitHub Gist** позволяет сохранить проект в облаке GitHub как приватный файл.
+> Вы получите URL и сможете загрузить его на любом устройстве.
+> Требуется [Personal Access Token](https://github.com/settings/tokens) с правом `gist`.
+""")
+        if not REQ_OK:
+            st.error(t("gh_need_req"))
+        else:
+            st.session_state.gh_token = st.text_input(
+                t("gh_token"), value=st.session_state.gh_token,
+                type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
+
+            G1, G2 = st.columns(2)
+            with G1:
+                if st.button(t("gh_save"), use_container_width=True):
+                    if not st.session_state.gh_token:
+                        st.error("Enter GitHub token first.")
+                    else:
+                        proj = {k: st.session_state.get(k,"") for k in
+                                ["art_title","authors","affiliation","keywords","abstract",
+                                 "intro","methods","results","discussion","conclusion"]}
+                        proj["refs"]     = st.session_state.refs
+                        proj["formulas"] = st.session_state.formulas
+                        proj["tables"]   = st.session_state.tables
+                        proj["saved_at"] = datetime.now().isoformat()
+                        content  = json.dumps(proj, ensure_ascii=False, indent=2)
+                        filename = sfn(st.session_state.art_title or "article") + "_project.json"
+                        with st.spinner("Uploading to GitHub Gist…"):
+                            url = gist_save(st.session_state.gh_token, content, filename)
+                        if url:
+                            st.success(t("gh_saved"))
+                            st.code(url)
+                            add_log("gist_save", st.session_state.username, url)
+                        else:
+                            st.error(t("gh_err"))
+
+            with G2:
+                gist_url_in = st.text_input(t("gh_url"),
+                                            placeholder="https://gist.github.com/user/abc123")
+                if st.button(t("gh_load"), use_container_width=True):
+                    if not st.session_state.gh_token or not gist_url_in:
+                        st.error("Enter both token and Gist URL.")
+                    else:
+                        with st.spinner("Loading from GitHub Gist…"):
+                            content = gist_load(st.session_state.gh_token, gist_url_in)
+                        if content:
+                            try:
+                                data = json.loads(content)
+                                for f in ["art_title","authors","affiliation","keywords",
+                                          "abstract","intro","methods","results","discussion",
+                                          "conclusion","refs","formulas","tables"]:
+                                    if f in data:
+                                        st.session_state[f] = data[f]
+                                st.success(t("gh_loaded"))
+                                add_log("gist_load", st.session_state.username, gist_url_in)
+                            except Exception as e:
+                                st.error(f"Parse error: {e}")
+                        else:
+                            st.error(t("gh_err"))
+
+# ════════════════════════════════════════════════════════════════════════════
 # FLOATING ACTION BUTTON
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def fab():
-    steps = nav_steps()
-    if st.session_state.page in steps and st.session_state.page != t("nav_generate"):
-        st.markdown(
-            f'<div class="fab">🚀 {t("generate")}</div>',
-            unsafe_allow_html=True)
+    wf = workflow_pages()
+    if st.session_state.page in wf and st.session_state.page != t("nav_gen"):
+        st.markdown(f'<div class="fab">🚀 {t("gen_title")}</div>',
+                    unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 # MAIN
-# ─────────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
 def main():
     if not st.session_state.logged_in:
-        page_login(); return
+        auth_page(); return
 
-    css(dark=st.session_state.dark)
+    inject_css(dark=st.session_state.dark)
     sidebar()
 
     pg = st.session_state.page
     routes = {
-        t("nav_info"):     pg_info,
-        t("nav_sections"): pg_sections,
-        t("nav_figures"):  pg_figures,
-        t("nav_refs"):     pg_refs,
-        t("nav_generate"): pg_generate,
-        t("nav_settings"): pg_settings,
+        t("nav_info"):  pg_info,
+        t("nav_sec"):   pg_sections,
+        t("nav_fig"):   pg_figures,
+        t("nav_tbl"):   pg_tables,
+        t("nav_form"):  pg_formulas,
+        t("nav_ref"):   pg_refs,
+        t("nav_gen"):   pg_generate,
+        t("nav_set"):   pg_settings,
     }
     routes.get(pg, pg_info)()
     fab()

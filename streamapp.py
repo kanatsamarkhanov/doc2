@@ -769,18 +769,18 @@ def pg_figures():
 
     with L:
         st.subheader(f"➕ {t('add_fig')}")
-            with st.form("ff", clear_on_submit=True):
-                fn  = st.text_input(t("fig_no"), placeholder="1")
-                fc  = st.text_input(t("fig_cap"), placeholder="Map of study area, Kazakhstan")
-                fup = st.file_uploader(t("upload_fig"), type=["png","jpg","jpeg","tif","svg"])
-                if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and fc:
-                    st.session_state.figures.append({
-                        "number":  fn or str(len(st.session_state.figures)+1),
-                        "caption": fc,
-                        "image":   fup.read() if fup else None,
-                        "name":    fup.name   if fup else None,
-                    })
-                st.success("✅ Figure added")
+        with st.form("ff", clear_on_submit=True):
+            fn  = st.text_input(t("fig_no"), placeholder="1")
+            fc  = st.text_input(t("fig_cap"), placeholder="Map of study area, Kazakhstan")
+            fup = st.file_uploader(t("upload_fig"), type=["png","jpg","jpeg","tif","svg"])
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and fc:
+                st.session_state.figures.append({
+                    "number":  fn or str(len(st.session_state.figures)+1),
+                    "caption": fc,
+                    "image":   fup.read() if fup else None,
+                    "name":    fup.name   if fup else None,
+                })
+            st.success("✅ Figure added")
 
     with R:
         st.subheader(f"📋 {t('no_figs') if not st.session_state.figures else 'Figure List'}")

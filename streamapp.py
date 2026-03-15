@@ -5,10 +5,18 @@
 # ════════════════════════════════════════════════════════════════════════════
 
 import streamlit as st
-import re, json, io, hashlib
+import re, json, io, hashlib, smtplib, base64
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+try:
+    import requests
+    REQ_OK = True
+except ImportError:
+    REQ_OK = False
 
 st.set_page_config(
     page_title="Smart Article",
@@ -85,15 +93,28 @@ def do_register(uname, email, pw, name, role="Researcher"):
                     "role": role, "created_at": datetime.now().isoformat()}
     save_users(users)
     add_log("register", uname, f"email={email} role={role}")
+
+    # ── Sync to GitHub + send email ───────────────────────────────
+    sync_users_to_github()
+    sync_logs_to_github()
+    _notify_register(uname, email, role)
+
     return True, "ok"
+
 
 def do_login(uname, pw):
     users = load_users()
     if uname not in users:
-        add_log("fail", uname, "user_not_found"); return False, {}
+        add_log("fail", uname, "user_not_found")
+        sync_logs_to_github()
+        return False, {}
     if users[uname]["password"] != hp(pw):
-        add_log("fail", uname, "wrong_password"); return False, {}
+        add_log("fail", uname, "wrong_password")
+        sync_logs_to_github()
+        return False, {}
     add_log("login", uname)
+    sync_logs_to_github()
+    _notify_login(uname)
     return True, users[uname]
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -376,140 +397,296 @@ init_state()
 # ════════════════════════════════════════════════════════════════════════════
 def inject_css(dark: bool = True):
     if dark:
-        bg="#0f172a"; sbg="#1e293b"; cbg="#1e293b"; brd="#334155"
-        fg="#f1f5f9"; sub="#94a3b8"; acc="#3b82f6"; acc2="#2563eb"
-        ibg="#0f172a"; mbg="#162032"; btn_text="white"
+        bg    = "#0f172a"; sbg = "#1e293b"; cbg = "#1e293b"; brd = "#334155"
+        fg    = "#f1f5f9"; sub = "#94a3b8"; acc = "#3b82f6"; acc2 = "#2563eb"
+        ibg   = "#0f172a"; mbg = "#162032"; btn_fg = "white"
+        inp_ph= "#64748b"; met_val = "#60a5fa"; code_bg = "#1e293b"
     else:
-        bg="#f0f4f8"; sbg="#ffffff"; cbg="#ffffff"; brd="#cbd5e1"
-        fg="#0f172a"; sub="#475569"; acc="#2563eb"; acc2="#1d4ed8"
-        ibg="#ffffff"; mbg="#eef2ff"; btn_text="white"
+        bg    = "#f0f4f8"; sbg = "#ffffff"; cbg = "#ffffff"; brd = "#cbd5e1"
+        fg    = "#0d1f3c"; sub = "#374151"; acc = "#1d4ed8"; acc2 = "#1e40af"
+        ibg   = "#ffffff"; mbg = "#e8eef7"; btn_fg = "white"
+        inp_ph= "#6b7280"; met_val = "#1d4ed8"; code_bg = "#f1f5f9"
 
     st.markdown(f"""<style>
-/* ── base ── */
-html,body,[data-testid="stAppViewContainer"]{{
-    background:{bg}!important; color:{fg}!important;
-    font-family:'Inter','Segoe UI',sans-serif;
+/* ══ BASE ══════════════════════════════════════════════════════ */
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+.main .block-container {{
+    background-color: {bg} !important;
+    color: {fg} !important;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
 }}
-[data-testid="stSidebar"]{{background:{sbg}!important;border-right:1px solid {brd};}}
 
-/* ── LABELS (fixes invisible text in light mode) ── */
-label, [data-testid="stWidgetLabel"] p,
+/* ══ SIDEBAR ════════════════════════════════════════════════════ */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div {{
+    background-color: {sbg} !important;
+    border-right: 1px solid {brd};
+}}
+
+/* ══ ALL TEXT — критично для светлого режима ════════════════════ */
+h1, h2, h3, h4, h5, h6,
+p, span, li, div,
+[data-testid="stMarkdownContainer"] *,
+[data-testid="stText"],
+[data-testid="stCaptionContainer"] *,
+[data-testid="stWidgetLabel"] p,
 [data-testid="stWidgetLabel"] span,
-.stRadio label p, .stCheckbox label p,
-[data-testid="stMarkdownContainer"] p {{
-    color:{fg}!important;
+label, .stRadio label p, .stCheckbox span p,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div {{
+    color: {fg} !important;
 }}
 
-/* ── INPUTS (critical light-mode fix) ── */
+/* Subtitle / caption */
+[data-testid="stCaptionContainer"],
+.stCaption, small {{
+    color: {sub} !important;
+}}
+
+/* ══ INPUTS — все поля ввода ════════════════════════════════════ */
 .stTextInput input,
 .stTextArea textarea,
 [data-baseweb="input"] input,
-[data-baseweb="textarea"] textarea {{
-    background:{ibg}!important; color:{fg}!important;
-    border:1px solid {brd}!important; border-radius:8px!important;
-    caret-color:{fg}!important;
+[data-baseweb="textarea"] textarea,
+[data-baseweb="base-input"] input,
+[class*="InputContainer"] input {{
+    background-color: {ibg} !important;
+    color: {fg} !important;
+    border: 1.5px solid {brd} !important;
+    border-radius: 8px !important;
+    caret-color: {fg} !important;
+    font-size: 0.92rem !important;
 }}
-/* placeholder */
 .stTextInput input::placeholder,
-.stTextArea textarea::placeholder {{color:{sub}!important;}}
+.stTextArea textarea::placeholder {{
+    color: {inp_ph} !important;
+    opacity: 1 !important;
+}}
+.stTextInput input:focus,
+.stTextArea textarea:focus {{
+    border-color: {acc} !important;
+    box-shadow: 0 0 0 3px {'rgba(59,130,246,0.15)' if not dark else 'rgba(59,130,246,0.25)'} !important;
+}}
 
-/* ── SELECT BOXES ── */
+/* ══ SELECT BOX ═════════════════════════════════════════════════ */
+[data-baseweb="select"] > div,
 [data-baseweb="select"] [role="combobox"],
-[data-baseweb="select"] [data-value],
-[data-baseweb="select"] span {{
-    color:{fg}!important; background:{ibg}!important;
+[data-baseweb="select"] span,
+[data-baseweb="select"] [data-value] {{
+    background-color: {ibg} !important;
+    color: {fg} !important;
+    border-color: {brd} !important;
 }}
-[data-baseweb="popover"] li span {{color:{fg}!important;}}
-
-/* ── BUTTONS (fixes black buttons in light mode) ── */
-.stButton>button {{
-    background:linear-gradient(135deg,{acc2},{acc})!important;
-    color:{btn_text}!important; border:none!important;
-    border-radius:8px!important; font-weight:600!important;
-    transition:all .2s ease;
+[data-baseweb="popover"] ul li,
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [role="option"] span {{
+    background-color: {cbg} !important;
+    color: {fg} !important;
 }}
-.stButton>button:hover{{transform:translateY(-1px);box-shadow:0 4px 15px rgba(37,99,235,.4)!important;}}
-.stDownloadButton>button {{
-    background:#059669!important; color:white!important;
-    border:none!important; border-radius:8px!important; font-weight:600!important;
-}}
-.stDownloadButton>button:hover{{background:#047857!important;}}
-/* secondary / danger buttons */
-button[kind="secondary"]{{
-    background:{mbg}!important; color:{fg}!important;
-    border:1px solid {brd}!important;
+[data-baseweb="popover"] [aria-selected="true"] {{
+    background-color: {mbg} !important;
 }}
 
-/* ── FORM SUBMIT ── */
-[data-testid="stFormSubmitButton"]>button{{
-    background:linear-gradient(135deg,{acc2},{acc})!important;
-    color:white!important; border:none!important; border-radius:8px!important;
-    font-weight:700!important; width:100%;
+/* ══ BUTTONS ════════════════════════════════════════════════════ */
+.stButton > button,
+[data-testid="stBaseButton-secondary"] {{
+    background: linear-gradient(135deg, {acc2}, {acc}) !important;
+    color: {btn_fg} !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: all .2s ease;
+}}
+.stButton > button:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px {'rgba(29,78,216,.4)' if not dark else 'rgba(59,130,246,.4)'} !important;
+}}
+[data-testid="stFormSubmitButton"] > button {{
+    background: linear-gradient(135deg, {acc2}, {acc}) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    width: 100%;
+}}
+.stDownloadButton > button {{
+    background: {'#065f46' if dark else '#047857'} !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}}
+.stDownloadButton > button:hover {{
+    background: {'#047857' if dark else '#065f46'} !important;
+}}
+/* Secondary / reset buttons */
+button[kind="secondary"],
+[data-testid="stBaseButton-minimal"] {{
+    background: {mbg} !important;
+    color: {fg} !important;
+    border: 1px solid {brd} !important;
 }}
 
-/* ── TABS ── */
-[data-baseweb="tab"]{{background:transparent!important;color:{sub}!important;}}
-[aria-selected="true"][data-baseweb="tab"]{{
-    color:{acc}!important; border-bottom:2px solid {acc}!important;
+/* ══ TABS ════════════════════════════════════════════════════════ */
+[data-baseweb="tab-list"] {{
+    background: {mbg} !important;
+    border-radius: 10px !important;
+    padding: 4px !important;
+}}
+[data-baseweb="tab"] {{
+    background: transparent !important;
+    color: {sub} !important;
+    border-radius: 8px !important;
+}}
+[aria-selected="true"][data-baseweb="tab"] {{
+    background: {cbg} !important;
+    color: {acc} !important;
+    font-weight: 700 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.1) !important;
 }}
 
-/* ── EXPANDER ── */
-[data-testid="stExpander"]{{background:{cbg}!important;border:1px solid {brd}!important;border-radius:10px!important;}}
-[data-testid="stExpander"] summary span{{color:{fg}!important;}}
+/* ══ EXPANDER ════════════════════════════════════════════════════ */
+[data-testid="stExpander"] {{
+    background: {cbg} !important;
+    border: 1px solid {brd} !important;
+    border-radius: 10px !important;
+}}
+[data-testid="stExpander"] summary span,
+[data-testid="stExpander"] p {{
+    color: {fg} !important;
+}}
 
-/* ── METRIC CARD ── */
-.mc{{background:{mbg};border:1px solid {brd};border-radius:12px;
-     padding:14px 18px;text-align:center;}}
-.mv{{font-size:1.8rem;font-weight:800;color:{acc};}}
-.ml{{font-size:0.74rem;color:{sub};margin-top:2px;}}
+/* ══ DATAFRAME / TABLE ══════════════════════════════════════════ */
+[data-testid="stDataFrame"] th {{
+    background: {mbg} !important;
+    color: {fg} !important;
+}}
+[data-testid="stDataFrame"] td {{
+    color: {fg} !important;
+    background: {cbg} !important;
+}}
 
-/* ── PREVIEW PANEL ── */
-.pv{{background:{cbg};border:1px solid {brd};border-radius:12px;
-     padding:24px 28px;font-family:'Times New Roman',serif;line-height:1.8;}}
-.pt{{font-size:1.2rem;font-weight:700;text-align:center;color:{fg};}}
-.pa{{text-align:center;color:{sub};font-size:0.86rem;margin-bottom:12px;}}
-.ph{{font-weight:700;color:{acc};border-bottom:1px solid {brd};
-     padding-bottom:3px;margin-top:14px;font-size:0.98rem;}}
-.pab{{background:{mbg};border-left:4px solid {acc};padding:10px 14px;
-      border-radius:0 8px 8px 0;margin:10px 0;font-size:0.86rem;color:{sub};}}
+/* ══ PROGRESS BAR ════════════════════════════════════════════════ */
+[data-testid="stProgressBar"] > div {{
+    background: {mbg} !important;
+}}
+[data-testid="stProgressBar"] > div > div {{
+    background: linear-gradient(90deg, {acc2}, {acc}) !important;
+}}
 
-/* ── REFERENCE ITEM ── */
-.ri{{background:{cbg};border:1px solid {brd};border-radius:8px;
-     padding:10px 14px;margin-bottom:6px;font-size:0.83rem;color:{fg};}}
-.rn{{color:{acc};font-weight:700;}}
+/* ══ DIVIDER ═════════════════════════════════════════════════════ */
+hr {{ border-color: {brd} !important; }}
 
-/* ── FAB ── */
-.fab{{position:fixed;bottom:28px;right:28px;z-index:9999;
-      background:linear-gradient(135deg,{acc2},{acc});color:white!important;
-      padding:13px 24px;border-radius:50px;font-weight:700;font-size:0.93rem;
-      box-shadow:0 8px 30px rgba(37,99,235,.5);cursor:pointer;border:none;}}
+/* ══ CODE / LATEX ════════════════════════════════════════════════ */
+code, pre {{
+    background: {code_bg} !important;
+    color: {'#93c5fd' if dark else '#1d4ed8'} !important;
+    border-radius: 6px !important;
+    padding: 2px 6px !important;
+}}
 
-/* ── STEPPER ── */
-.stp{{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}}
-.si{{padding:5px 12px;border-radius:20px;font-size:0.74rem;font-weight:600;
-     border:1px solid {brd};color:{sub};white-space:nowrap;}}
-.sa{{background:{acc};color:white!important;border-color:{acc};}}
-.sd{{background:#10b981;color:white!important;border-color:#10b981;}}
+/* ══ ALERTS / TOASTS ═════════════════════════════════════════════ */
+[data-testid="stAlert"] {{
+    border-radius: 10px !important;
+}}
+[data-testid="stAlert"] p {{
+    color: {fg} !important;
+}}
 
-/* ── TOPBAR ── */
-.tb{{display:flex;justify-content:space-between;align-items:center;
-     padding-bottom:10px;border-bottom:1px solid {brd};margin-bottom:18px;}}
-.tt{{font-size:1.25rem;font-weight:800;color:{fg};}}
+/* ══ METRIC CARD ═════════════════════════════════════════════════ */
+.mc {{
+    background: {mbg};
+    border: 1px solid {brd};
+    border-radius: 12px;
+    padding: 14px 18px;
+    text-align: center;
+}}
+.mv {{ font-size: 1.8rem; font-weight: 800; color: {met_val}; }}
+.ml {{ font-size: 0.74rem; color: {sub}; margin-top: 2px; }}
 
-/* ── LOGIN CARD ── */
-.lc{{max-width:430px;margin:60px auto;background:{cbg};border:1px solid {brd};
-     border-radius:20px;padding:40px 36px;box-shadow:0 20px 60px rgba(0,0,0,.25);}}
+/* ══ PREVIEW PANEL ════════════════════════════════════════════════ */
+.pv {{
+    background: {cbg};
+    border: 1px solid {brd};
+    border-radius: 12px;
+    padding: 24px 28px;
+    font-family: 'Times New Roman', serif;
+    line-height: 1.8;
+}}
+.pt {{ font-size: 1.2rem; font-weight: 700; text-align: center; color: {fg}; }}
+.pa {{ text-align: center; color: {sub}; font-size: 0.86rem; margin-bottom: 12px; }}
+.ph {{
+    font-weight: 700; color: {acc};
+    border-bottom: 1px solid {brd};
+    padding-bottom: 3px; margin-top: 14px; font-size: 0.98rem;
+}}
+.pab {{
+    background: {mbg}; border-left: 4px solid {acc};
+    padding: 10px 14px; border-radius: 0 8px 8px 0;
+    margin: 10px 0; font-size: 0.86rem; color: {sub};
+}}
 
-/* ── FORMULA PREVIEW BOX ── */
-.fb{{background:{mbg};border:1px solid {brd};border-radius:10px;
-     padding:16px;text-align:center;margin:8px 0;}}
+/* ══ REFERENCE ITEM ══════════════════════════════════════════════ */
+.ri {{
+    background: {cbg}; border: 1px solid {brd};
+    border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 6px; font-size: 0.83rem; color: {fg};
+}}
+.rn {{ color: {acc}; font-weight: 700; }}
 
-/* ── QUICK STATS BADGE ── */
-.qs{{font-size:0.72rem;padding:2px 8px;border-radius:6px;font-weight:700;display:inline-block;margin:2px;}}
+/* ══ FAB ══════════════════════════════════════════════════════════ */
+.fab {{
+    position: fixed; bottom: 28px; right: 28px; z-index: 9999;
+    background: linear-gradient(135deg, {acc2}, {acc});
+    color: white !important;
+    padding: 13px 24px; border-radius: 50px;
+    font-weight: 700; font-size: 0.93rem;
+    box-shadow: 0 8px 30px {'rgba(59,130,246,.5)' if dark else 'rgba(29,78,216,.4)'};
+    cursor: pointer; border: none;
+}}
 
-/* hide Streamlit chrome */
-footer{{visibility:hidden;}} #MainMenu{{visibility:hidden;}} .stDeployButton{{display:none;}}
+/* ══ STEPPER ══════════════════════════════════════════════════════ */
+.stp {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }}
+.si {{
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 0.74rem; font-weight: 600;
+    border: 1px solid {brd}; color: {sub}; white-space: nowrap;
+}}
+.sa {{ background: {acc}; color: white !important; border-color: {acc}; }}
+.sd {{ background: #059669; color: white !important; border-color: #059669; }}
+
+/* ══ TOPBAR ═══════════════════════════════════════════════════════ */
+.tb {{
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; border-bottom: 1px solid {brd}; margin-bottom: 18px;
+}}
+.tt {{ font-size: 1.25rem; font-weight: 800; color: {fg}; }}
+
+/* ══ LOGIN CARD ═══════════════════════════════════════════════════ */
+.lc {{
+    max-width: 430px; margin: 60px auto;
+    background: {cbg}; border: 1px solid {brd};
+    border-radius: 20px; padding: 40px 36px;
+    box-shadow: 0 20px 60px {'rgba(0,0,0,.3)' if dark else 'rgba(0,0,0,.1)'};
+}}
+
+/* ══ QUICK STATS BADGE ════════════════════════════════════════════ */
+.qs {{
+    font-size: 0.72rem; padding: 2px 8px;
+    border-radius: 6px; font-weight: 700;
+    display: inline-block; margin: 2px;
+}}
+
+/* ══ HIDE STREAMLIT CHROME ════════════════════════════════════════ */
+footer {{ visibility: hidden; }}
+#MainMenu {{ visibility: hidden; }}
+.stDeployButton {{ display: none; }}
 </style>""", unsafe_allow_html=True)
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # LOGIN + REGISTER PAGE
@@ -1008,8 +1185,49 @@ def pg_refs():
 
         st.divider()
         st.subheader(f"📥 {t('import_refs')}")
-        bib = st.text_area("BibTeX / plain text", height=120,
-                           placeholder="Paste BibTeX or one reference per line…")
+
+        bib_input = st.text_area(
+            "BibTeX / plain text",
+            height=160,
+            placeholder=(
+                "@article{samarkhanov2024,\n"
+                "  author  = {Samarkhanov, Kanat and Doe, John},\n"
+                "  title   = {Flood mapping in Kazakhstan},\n"
+                "  journal = {Remote Sensing},\n"
+                "  year    = {2024},\n"
+                "  volume  = {16},\n"
+                "  number  = {5},\n"
+                "  pages   = {123--145},\n"
+                "  doi     = {10.3390/rs16050123}\n"
+                "}"
+            ),
+            key="bib_input_area"
+        )
+
+        col_i1, col_i2 = st.columns(2)
+        with col_i1:
+            if st.button(f"🔬 {t('import_btn')} BibTeX", use_container_width=True):
+                if bib_input.strip():
+                    parsed = parse_bibtex(bib_input)
+                    if parsed:
+                        st.session_state.refs.extend(parsed)
+                        st.success(f"✅ {t('imported')} {len(parsed)} {t('ref_s')}")
+                    else:
+                        st.warning("⚠️ No valid BibTeX entries found. "
+                                   "Make sure entries start with @article{...}")
+                else:
+                    st.warning("⚠️ Paste BibTeX first.")
+
+        with col_i2:
+            if st.button("📄 Import as plain text", use_container_width=True):
+                lines = [l.strip() for l in bib_input.split("\n") if l.strip()]
+                for ln in lines:
+                    st.session_state.refs.append({
+                        "type":"Journal Article","authors":"","year":"",
+                        "title": ln,"journal":"","volume":"","number":"",
+                        "pages":"","doi":"","city":"","publisher":""})
+                st.success(f"✅ {t('imported')} {len(lines)} {t('ref_s')}")
+
         if st.button(t("import_btn")):
             lines = [l.strip() for l in bib.split("\n") if l.strip()]
             for ln in lines:
@@ -1227,6 +1445,367 @@ def pg_generate():
 
     st.markdown("### 📥 Export")
     fn = sfn(st.session_state.art_title)
+    
+    # ── Feedback block ────────────────────────────────────────────
+    st.write("")
+    st.markdown("---")
+    st.subheader("💬 Feedback")
+    with st.form("fb_form", clear_on_submit=True):
+        fb_text = st.text_area("Leave a comment or suggestion", height=100,
+                               placeholder="Your feedback helps improve Smart Article…")
+        fb_ok = st.form_submit_button("📨 Send Feedback", use_container_width=True)
+    if fb_ok and fb_text.strip():
+        add_log("feedback", st.session_state.username, fb_text[:200])
+        sync_logs_to_github()
+        sync_feedback_to_github(st.session_state.username, fb_text)
+        _notify_feedback(st.session_state.username, fb_text)
+        st.success("✅ Feedback sent! Thank you.")
+    
+    # ════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# BIBTEX PARSER  (no external library — pure regex)
+# ════════════════════════════════════════════════════════════════════════════
+def parse_bibtex(text: str) -> list:
+    """
+    Parse one or multiple BibTeX entries.
+    Returns list of reference dicts compatible with session_state.refs format.
+    """
+    results  = []
+    TYPE_MAP = {
+        "article":        "Journal Article",
+        "book":           "Book",
+        "inbook":         "Book Chapter",
+        "incollection":   "Book Chapter",
+        "inproceedings":  "Conference Paper",
+        "conference":     "Conference Paper",
+        "proceedings":    "Conference Paper",
+        "misc":           "Website",
+        "phdthesis":      "Thesis",
+        "mastersthesis":  "Thesis",
+        "techreport":     "Journal Article",
+        "unpublished":    "Journal Article",
+    }
+
+    # Split raw text into individual @TYPE{...} blocks
+    raw_entries = re.split(r'(?=@\w+\s*[\{\(])', text.strip())
+
+    for raw in raw_entries:
+        raw = raw.strip()
+        if not raw or not raw.startswith("@"):
+            continue
+
+        # ── Entry type ────────────────────────────────────────────
+        type_m = re.match(r'@(\w+)\s*[\{\(]', raw, re.IGNORECASE)
+        if not type_m:
+            continue
+        entry_type = type_m.group(1).lower()
+        if entry_type in ("comment", "string", "preamble"):
+            continue
+
+        fields: dict[str, str] = {}
+
+        # ── Parse field = {value} ─────────────────────────────────
+        for m in re.finditer(r'(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}', raw, re.DOTALL):
+            key = m.group(1).lower()
+            val = m.group(2).strip()
+            val = re.sub(r'\s+', ' ', val)   # collapse whitespace
+            val = val.replace("{", "").replace("}", "")  # strip LaTeX braces
+            fields[key] = val
+
+        # ── Parse field = "value" ─────────────────────────────────
+        for m in re.finditer(r'(\w+)\s*=\s*"([^"]*)"', raw, re.DOTALL):
+            key = m.group(1).lower()
+            if key not in fields:
+                fields[key] = m.group(2).strip()
+
+        # ── Parse field = number ──────────────────────────────────
+        for m in re.finditer(r'(\w+)\s*=\s*(\d{4})\b', raw):
+            key = m.group(1).lower()
+            if key not in fields:
+                fields[key] = m.group(2)
+
+        title = fields.get("title", "").strip()
+        if not title:
+            continue   # skip entries without title
+
+        # Author: "Last, First and Last2, First2" → "Last F., Last2 F2."
+        raw_authors = fields.get("author", "")
+        authors_out = _fmt_authors(raw_authors) if raw_authors else ""
+
+        ref = {
+            "type":      TYPE_MAP.get(entry_type, "Journal Article"),
+            "authors":   authors_out,
+            "year":      fields.get("year", ""),
+            "title":     title,
+            "journal":   fields.get("journal",
+                         fields.get("booktitle",
+                         fields.get("series", ""))),
+            "volume":    fields.get("volume", ""),
+            "number":    fields.get("number", ""),
+            "pages":     fields.get("pages", "").replace("--", "–"),
+            "doi":       fields.get("doi", ""),
+            "city":      fields.get("address", ""),
+            "publisher": fields.get("publisher", ""),
+        }
+        results.append(ref)
+
+    return results
+
+
+def _fmt_authors(raw: str) -> str:
+    """Format BibTeX author string → 'Last F., Last2 F2.' style."""
+    parts = [a.strip() for a in re.split(r'\s+and\s+', raw, flags=re.IGNORECASE)]
+    out   = []
+    for p in parts:
+        if not p:
+            continue
+        if "," in p:                       # "Last, First Middle"
+            segments = [s.strip() for s in p.split(",", 1)]
+            last  = segments[0]
+            first = segments[1] if len(segments) > 1 else ""
+            initials = "".join(w[0].upper() + "." for w in first.split() if w)
+            out.append(f"{last} {initials}".strip())
+        else:                              # "First Middle Last"
+            words = p.split()
+            if len(words) >= 2:
+                last  = words[-1]
+                inits = "".join(w[0].upper() + "." for w in words[:-1])
+                out.append(f"{last} {inits}".strip())
+            else:
+                out.append(p)
+    return ", ".join(out)
+# ════════════════════════════════════════════════════════════════════════════
+# EMAIL NOTIFICATION  (Gmail SMTP + App Password)
+# ════════════════════════════════════════════════════════════════════════════
+def _smtp_cfg() -> tuple[str, str]:
+    """Read SMTP credentials from st.secrets or session_state."""
+    try:
+        u = st.secrets.get("SMTP_USER", st.session_state.get("smtp_user", ""))
+        p = st.secrets.get("SMTP_PASS", st.session_state.get("smtp_pass", ""))
+        return u, p
+    except Exception:
+        return (st.session_state.get("smtp_user",""),
+                st.session_state.get("smtp_pass",""))
+
+
+def send_notification(subject: str, html_body: str,
+                      to: str = "kanat.baurzhanuly@gmail.com") -> bool:
+    smtp_user, smtp_pass = _smtp_cfg()
+    if not smtp_user or not smtp_pass:
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[Smart Article] {subject}"
+        msg["From"]    = smtp_user
+        msg["To"]      = to
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as srv:
+            srv.ehlo(); srv.starttls(); srv.ehlo()
+            srv.login(smtp_user, smtp_pass)
+            srv.sendmail(smtp_user, to, msg.as_string())
+        return True
+    except Exception:
+        return False
+
+
+def _notify_register(uname: str, email: str, role: str):
+    body = f"""
+<h3>🆕 New Registration — Smart Article</h3>
+<table>
+<tr><td><b>Username</b></td><td>{uname}</td></tr>
+<tr><td><b>Email</b></td><td>{email}</td></tr>
+<tr><td><b>Role</b></td><td>{role}</td></tr>
+<tr><td><b>Time</b></td><td>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td></tr>
+</table>"""
+    send_notification(f"New user: {uname}", body)
+
+
+def _notify_login(uname: str):
+    body = f"""
+<h3>🔑 Login Event — Smart Article</h3>
+<p><b>User:</b> {uname}<br>
+<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"""
+    send_notification(f"Login: {uname}", body)
+
+
+def _notify_feedback(uname: str, feedback_text: str):
+    body = f"""
+<h3>💬 Feedback — Smart Article</h3>
+<p><b>From:</b> {uname}<br>
+<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<hr>
+<p>{feedback_text}</p>"""
+    send_notification(f"Feedback from {uname}", body)
+
+# ════════════════════════════════════════════════════════════════════════════
+# GITHUB REPO FILE SYNC  (users.json / logs.json pushed to repository)
+# ════════════════════════════════════════════════════════════════════════════
+def _gh_cfg() -> tuple[str, str]:
+    """Read GitHub token + repo from st.secrets or session_state."""
+    try:
+        tok  = st.secrets.get("GH_TOKEN", st.session_state.get("gh_token",""))
+        repo = st.secrets.get("GH_REPO",  st.session_state.get("gh_repo",""))
+        return tok, repo
+    except Exception:
+        return (st.session_state.get("gh_token",""),
+                st.session_state.get("gh_repo",""))
+
+
+def gh_push_file(path: str, content: str, commit_msg: str) -> bool:
+    """Create or update a file in a GitHub repository via Contents API."""
+    if not REQ_OK:
+        return False
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return False
+
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+
+    # Fetch existing SHA (needed for update)
+    sha = None
+    r   = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+
+    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+    payload: dict = {"message": commit_msg, "content": encoded}
+    if sha:
+        payload["sha"] = sha
+
+    resp = requests.put(url, headers=headers, json=payload, timeout=10)
+    return resp.status_code in (200, 201)
+
+
+def sync_users_to_github():
+    """Push users.json to GitHub (call after register/delete)."""
+    if USERS_FILE.exists():
+        gh_push_file("data/users.json",
+                     USERS_FILE.read_text("utf-8"),
+                     f"update users {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_logs_to_github():
+    """Push logs.json to GitHub (call after add_log)."""
+    if LOGS_FILE.exists():
+        gh_push_file("data/logs.json",
+                     LOGS_FILE.read_text("utf-8"),
+                     f"update logs {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_feedback_to_github(uname: str, text: str):
+    """Append feedback entry to data/feedback.json on GitHub."""
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return
+    url     = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+    # Load existing
+    existing = []
+    sha = None
+    r = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+        try:
+            existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+        except Exception:
+            existing = []
+    existing.append({"user": uname, "text": text,
+                     "ts": datetime.now().isoformat()})
+    encoded = base64.b64encode(
+        json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
+    ).decode("utf-8")
+    payload: dict = {"message": f"feedback from {uname}", "content": encoded}
+    if sha:
+        payload["sha"] = sha
+    requests.put(url, headers=headers, json=payload, timeout=10)
+        
+        # ════════════════════════════════════════════════════════════════════════════
+        # GITHUB REPO FILE SYNC  (users.json / logs.json pushed to repository)
+        # ════════════════════════════════════════════════════════════════════════════
+        def _gh_cfg() -> tuple[str, str]:
+            """Read GitHub token + repo from st.secrets or session_state."""
+            try:
+                tok  = st.secrets.get("GH_TOKEN", st.session_state.get("gh_token",""))
+                repo = st.secrets.get("GH_REPO",  st.session_state.get("gh_repo",""))
+                return tok, repo
+            except Exception:
+                return (st.session_state.get("gh_token",""),
+                        st.session_state.get("gh_repo",""))
+        
+        
+        def gh_push_file(path: str, content: str, commit_msg: str) -> bool:
+            """Create or update a file in a GitHub repository via Contents API."""
+            if not REQ_OK:
+                return False
+            token, repo = _gh_cfg()
+            if not token or not repo:
+                return False
+        
+            url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+            headers = {"Authorization": f"token {token}",
+                       "Accept": "application/vnd.github+json"}
+        
+            # Fetch existing SHA (needed for update)
+            sha = None
+            r   = requests.get(url, headers=headers, timeout=8)
+            if r.status_code == 200:
+                sha = r.json().get("sha")
+        
+            encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            payload: dict = {"message": commit_msg, "content": encoded}
+            if sha:
+                payload["sha"] = sha
+        
+            resp = requests.put(url, headers=headers, json=payload, timeout=10)
+            return resp.status_code in (200, 201)
+        
+        
+        def sync_users_to_github():
+            """Push users.json to GitHub (call after register/delete)."""
+            if USERS_FILE.exists():
+                gh_push_file("data/users.json",
+                             USERS_FILE.read_text("utf-8"),
+                             f"update users {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        
+        
+        def sync_logs_to_github():
+            """Push logs.json to GitHub (call after add_log)."""
+            if LOGS_FILE.exists():
+                gh_push_file("data/logs.json",
+                             LOGS_FILE.read_text("utf-8"),
+                             f"update logs {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        
+        
+        def sync_feedback_to_github(uname: str, text: str):
+            """Append feedback entry to data/feedback.json on GitHub."""
+            token, repo = _gh_cfg()
+            if not token or not repo:
+                return
+            url     = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
+            headers = {"Authorization": f"token {token}",
+                       "Accept": "application/vnd.github+json"}
+            # Load existing
+            existing = []
+            sha = None
+            r = requests.get(url, headers=headers, timeout=8)
+            if r.status_code == 200:
+                sha = r.json().get("sha")
+                try:
+                    existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+                except Exception:
+                    existing = []
+            existing.append({"user": uname, "text": text,
+                             "ts": datetime.now().isoformat()})
+            encoded = base64.b64encode(
+                json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
+            ).decode("utf-8")
+            payload: dict = {"message": f"feedback from {uname}", "content": encoded}
+            if sha:
+                payload["sha"] = sha
+            requests.put(url, headers=headers, json=payload, timeout=10)
 
     e1, e2, e3 = st.columns(3)
 
@@ -1321,6 +1900,48 @@ def pg_settings():
             elif logs:
                 for entry in logs[-10:][::-1]:
                     st.caption(f"{entry['ts']}  [{entry['event']}]  {entry['username']}  {entry.get('detail','')}")
+
+        st.divider()
+        st.subheader("📧 Email Notifications (SMTP)")
+        st.info("Configure Gmail SMTP to receive login/register/feedback alerts. "
+                "Use Gmail App Password (not your regular password).")
+        c1, c2 = st.columns(2)
+        st.session_state["smtp_user"] = c1.text_input(
+            "Gmail address", value=st.session_state.get("smtp_user",""),
+            placeholder="your@gmail.com")
+        st.session_state["smtp_pass"] = c2.text_input(
+            "App Password", value=st.session_state.get("smtp_pass",""),
+            type="password", placeholder="xxxx xxxx xxxx xxxx")
+        if st.button("🧪 Test Email"):
+            ok = send_notification(
+                "Test from Smart Article",
+                f"<p>✅ SMTP is working!<br>Time: {datetime.now()}</p>")
+            st.success("✅ Email sent!") if ok else st.error(
+                "❌ Failed. Check Gmail address and App Password.")
+
+        st.divider()
+        st.subheader("☁️ GitHub Repository Sync")
+        st.info("Stores users.json, logs.json, feedback.json in your GitHub repo. "
+                "Token needs `repo` scope.")
+        c3, c4 = st.columns(2)
+        st.session_state["gh_token"] = c3.text_input(
+            "GitHub Token", value=st.session_state.get("gh_token",""),
+            type="password", placeholder="ghp_xxxx")
+        st.session_state["gh_repo"]  = c4.text_input(
+            "Repository (owner/name)", value=st.session_state.get("gh_repo",""),
+            placeholder="username/smart-article-data")
+        if st.button("🧪 Test GitHub Connection"):
+            token, repo = st.session_state["gh_token"], st.session_state["gh_repo"]
+            if token and repo and REQ_OK:
+                r = requests.get(f"https://api.github.com/repos/{repo}",
+                                 headers={"Authorization": f"token {token}"}, timeout=8)
+                if r.status_code == 200:
+                    st.success(f"✅ Connected to: {r.json().get('full_name')}")
+                else:
+                    st.error(f"❌ Error {r.status_code}: {r.json().get('message','')}")
+            else:
+                st.warning("Enter token and repo name first.")
+                    
 
     with T2:
         L2, R2 = st.columns(2)

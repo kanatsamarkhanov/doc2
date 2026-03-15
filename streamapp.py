@@ -759,7 +759,7 @@ def pg_sections():
         st.markdown(f'<div class="pv">{"".join(parts)}</div>', unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
-# PAGE: FIGURES  (отдельная страница)
+# PAGE: FIGURES
 # ════════════════════════════════════════════════════════════════════════════
 def pg_figures():
     st.markdown(f'<div class="tb"><span class="tt">🖼️ {t("fig_mgr")}</span></div>',
@@ -770,7 +770,6 @@ def pg_figures():
     with L:
         st.subheader(f"➕ {t('add_fig')}")
         with st.form("ff", clear_on_submit=True):
-                    with st.form("ff", clear_on_submit=True):
             fn  = st.text_input(t("fig_no"), placeholder="1")
             fc  = st.text_input(t("fig_cap"), placeholder="Map of study area, Kazakhstan")
             fup = st.file_uploader(t("upload_fig"), type=["png","jpg","jpeg","tif","svg"])
@@ -797,7 +796,7 @@ def pg_figures():
                         st.session_state.figures.pop(i); st.rerun()
 
 # ════════════════════════════════════════════════════════════════════════════
-# PAGE: TABLES  (отдельная страница)
+# PAGE: TABLES
 # ════════════════════════════════════════════════════════════════════════════
 def pg_tables():
     st.markdown(f'<div class="tb"><span class="tt">📊 {t("tbl_mgr")}</span></div>',
@@ -838,7 +837,7 @@ def pg_tables():
                         st.session_state.tables.pop(i); st.rerun()
 
 # ════════════════════════════════════════════════════════════════════════════
-# PAGE: FORMULAS  (новая страница)
+# PAGE: FORMULAS
 # ════════════════════════════════════════════════════════════════════════════
 def pg_formulas():
     st.markdown(f'<div class="tb"><span class="tt">🧮 {t("form_mgr")}</span></div>',
@@ -915,7 +914,7 @@ def pg_formulas():
                 st.error(f"LaTeX error: {e}")
 
 # ════════════════════════════════════════════════════════════════════════════
-# ГОСТ 7.0.5-2008 + other citation formatters
+# CITATION FORMATTERS
 # ════════════════════════════════════════════════════════════════════════════
 def fmt_ref(ref: dict, style: str, n: int) -> str:
     au  = ref.get("authors","")
@@ -930,7 +929,6 @@ def fmt_ref(ref: dict, style: str, n: int) -> str:
     pub = ref.get("publisher","")
     doi_str = f" DOI: {doi}" if doi else ""
 
-    # ── ГОСТ 7.0.5-2008 ──────────────────────────────────────────────────
     if "ГОСТ" in style:
         rtype = ref.get("type","")
         if "Book" in rtype or "Книга" in rtype or "Кітап" in rtype:
@@ -941,32 +939,27 @@ def fmt_ref(ref: dict, style: str, n: int) -> str:
             yr_str = f", {yr}" if yr else ""
             pp_str = f". — {pp} с." if pp else ""
             return f"{au} {ti}{city_pub}{yr_str}{pp_str}"
-        elif "Thesis" in rtype or "Диссерт" in rtype or "Диссерт" in rtype:
+        elif "Thesis" in rtype or "Диссерт" in rtype:
             return f"{au} {ti} : дис. … канд./д-ра наук. — {cit or pub}, {yr}. — {pp} с."
-        elif "Conference" in rtype or "конференц" in rtype.lower() or "Конференц" in rtype:
+        elif "Conference" in rtype or "конференц" in rtype.lower():
             return (f"{au} {ti} // {jn}. — {cit or pub}, {yr}. — "
                     f"{'С. ' + pp if pp else ''}.{doi_str}")
         else:
-            # журнальная статья (основной случай)
             vol_str = f". — Т. {vo}" if vo else ""
             no_str  = f", № {no}"   if no else ""
             pp_str  = f". — С. {pp}" if pp else ""
             return (f"{au} {ti} // {jn}. — {yr}{vol_str}{no_str}{pp_str}.{doi_str}")
 
-    # ── APA 7th ───────────────────────────────────────────────────────────
     elif "APA" in style:
         vol_no = f"*{vo}*" + (f"({no})" if no else "") if vo else ""
         return f"{au} ({yr}). {ti}. *{jn}*, {vol_no}, {pp}.{doi_str}"
 
-    # ── Vancouver / Ванкувер ──────────────────────────────────────────────
     elif "Vancouver" in style or "Ванкувер" in style:
         return f"{n}. {au}. {ti}. {jn}. {yr};{vo}({no}):{pp}.{doi_str}"
 
-    # ── IEEE ──────────────────────────────────────────────────────────────
     elif "IEEE" in style:
         return f'[{n}] {au}, "{ti}," *{jn}*, vol. {vo}, no. {no}, pp. {pp}, {yr}.{doi_str}'
 
-    # ── Harvard / Гарвард / Chicago ───────────────────────────────────────
     else:
         return f"{au} {yr}, '{ti}', *{jn}*, vol. {vo}, no. {no}, pp. {pp}.{doi_str}"
 
@@ -997,8 +990,7 @@ def pg_refs():
             rpp   = c3.text_input(t("ref_pp"),  placeholder="1234–1250")
             rdoi  = st.text_input(t("ref_doi"), placeholder="10.3390/rs15051234")
 
-            # Extra fields for ГОСТ (book/thesis)
-            show_extra = rtype in ["Book","Книга","Кітап","Thesis","Диссертация","Диссертация"]
+            show_extra = rtype in ["Book","Книга","Кітап","Thesis","Диссертация"]
             if show_extra:
                 cx1, cx2 = st.columns(2)
                 rcit = cx1.text_input(t("ref_city"), placeholder="Алматы")
@@ -1059,7 +1051,6 @@ def build_docx() -> BytesIO:
         if h.runs: h.runs[0].font.color.rgb = BLUE
         return h
 
-    # Title block
     tp = doc.add_paragraph(); tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r  = tp.add_run(st.session_state.art_title or "Untitled")
     r.bold = True; r.font.size = Pt(16); r.font.color.rgb = BLUE
@@ -1080,13 +1071,11 @@ def build_docx() -> BytesIO:
 
     doc.add_paragraph()
 
-    # Abstract
     if st.session_state.abstract:
         add_heading_colored("Abstract", 2)
         doc.add_paragraph(st.session_state.abstract)
         doc.add_paragraph()
 
-    # IMRAD sections
     keys   = ["intro","methods","results","discussion","conclusion"]
     labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
     for i, (k, lbl) in enumerate(zip(keys, labels), 1):
@@ -1095,7 +1084,6 @@ def build_docx() -> BytesIO:
             doc.add_paragraph(st.session_state[k])
             doc.add_paragraph()
 
-    # Formulas
     if st.session_state.formulas:
         add_heading_colored("Formulas / Equations", 1)
         for frm in st.session_state.formulas:
@@ -1109,7 +1097,6 @@ def build_docx() -> BytesIO:
                 if dp.runs: dp.runs[0].italic = True; dp.runs[0].font.size = Pt(10)
             doc.add_paragraph()
 
-    # Figures
     if st.session_state.figures:
         add_heading_colored("Figures", 1)
         for fig in st.session_state.figures:
@@ -1122,7 +1109,6 @@ def build_docx() -> BytesIO:
                 cp.runs[0].italic = True; cp.runs[0].font.size = Pt(9)
             doc.add_paragraph()
 
-    # Tables
     if st.session_state.tables and PD_OK:
         for tbl in st.session_state.tables:
             tp2 = doc.add_paragraph(f"Table {tbl['number']}. {tbl['caption']}")
@@ -1140,7 +1126,6 @@ def build_docx() -> BytesIO:
                 except Exception: pass
             doc.add_paragraph()
 
-    # References
     if st.session_state.refs:
         add_heading_colored("References", 1)
         for i, ref in enumerate(st.session_state.refs, 1):
@@ -1152,7 +1137,7 @@ def build_docx() -> BytesIO:
     return buf
 
 # ════════════════════════════════════════════════════════════════════════════
-# GITHUB GIST  (save / load project)
+# GITHUB GIST
 # ════════════════════════════════════════════════════════════════════════════
 def gist_save(token: str, content: str, filename: str) -> str | None:
     if not REQ_OK: return None
@@ -1203,7 +1188,6 @@ def pg_generate():
     c4.metric(t("w_forms"), len(st.session_state.formulas))
     st.write("")
 
-    # Full article preview
     st.markdown(f"### {t('preview')}")
     keys   = ["intro","methods","results","discussion","conclusion"]
     labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
@@ -1241,7 +1225,6 @@ def pg_generate():
     st.markdown(f'<div class="pv">{"".join(parts)}</div>', unsafe_allow_html=True)
     st.write("")
 
-    # ── Export buttons ────────────────────────────────────────────────────
     st.markdown("### 📥 Export")
     fn = sfn(st.session_state.art_title)
 
@@ -1286,7 +1269,6 @@ def pg_generate():
                            use_container_width=True)
 
     with e3:
-        # ── Explain JSON ──────────────────────────────────────────────────
         with st.expander("ℹ️ " + ("What is Save / Load JSON?" if "English" in st.session_state.lang
                                    else "Что такое Сохранить / Загрузить JSON?"), expanded=False):
             st.info(t("load_json_help"))
@@ -1296,7 +1278,7 @@ def pg_generate():
                  "intro","methods","results","discussion","conclusion","cite_style"]}
         proj["refs"]     = st.session_state.refs
         proj["formulas"] = st.session_state.formulas
-        proj["tables"]   = [{k2:v2 for k2,v2 in tb.items()} for tb in st.session_state.tables]
+        proj["tables"]   = st.session_state.tables
         proj["exported_at"] = datetime.now().isoformat()
         st.download_button(t("save_json"),
                            json.dumps(proj, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -1313,7 +1295,6 @@ def pg_settings():
 
     T1, T2, T3 = st.tabs(["🎨 Theme & Style", "📂 Project", "☁️ GitHub Gist"])
 
-    # ── TAB 1: Theme ──────────────────────────────────────────────────────
     with T1:
         st.subheader(t("theme_label"))
         themes = t("themes")
@@ -1331,7 +1312,6 @@ def pg_settings():
         st.session_state.cite_style = cs
 
         st.divider()
-        # User log viewer (admin only)
         if st.session_state.username == "admin":
             st.subheader("📋 Activity Log (admin)")
             logs = load_logs()
@@ -1342,12 +1322,10 @@ def pg_settings():
                 for entry in logs[-10:][::-1]:
                     st.caption(f"{entry['ts']}  [{entry['event']}]  {entry['username']}  {entry.get('detail','')}")
 
-    # ── TAB 2: Project ────────────────────────────────────────────────────
     with T2:
         L2, R2 = st.columns(2)
         with L2:
             st.subheader(t("load_json"))
-            # Explain what JSON save/load does
             st.info(t("load_json_help"))
             upf = st.file_uploader("Upload JSON project file", type="json")
             if upf:
@@ -1375,14 +1353,9 @@ def pg_settings():
                 st.session_state.formulas = []
                 st.success(t("reset_ok"))
 
-    # ── TAB 3: GitHub Gist ────────────────────────────────────────────────
     with T3:
         st.subheader(t("gh_title"))
-        st.markdown("""
-> **GitHub Gist** позволяет сохранить проект в облаке GitHub как приватный файл.
-> Вы получите URL и сможете загрузить его на любом устройстве.
-> Требуется [Personal Access Token](https://github.com/settings/tokens) с правом `gist`.
-""")
+        st.markdown("""> **GitHub Gist** allows you to save the project in the cloud.""")
         if not REQ_OK:
             st.error(t("gh_need_req"))
         else:

@@ -1722,90 +1722,90 @@ def sync_feedback_to_github(uname: str, text: str):
         payload["sha"] = sha
     requests.put(url, headers=headers, json=payload, timeout=10)
         
-        # ════════════════════════════════════════════════════════════════════════════
-        # GITHUB REPO FILE SYNC  (users.json / logs.json pushed to repository)
-        # ════════════════════════════════════════════════════════════════════════════
-        def _gh_cfg() -> tuple[str, str]:
-            """Read GitHub token + repo from st.secrets or session_state."""
-            try:
-                tok  = st.secrets.get("GH_TOKEN", st.session_state.get("gh_token",""))
-                repo = st.secrets.get("GH_REPO",  st.session_state.get("gh_repo",""))
-                return tok, repo
-            except Exception:
-                return (st.session_state.get("gh_token",""),
-                        st.session_state.get("gh_repo",""))
-        
-        
-        def gh_push_file(path: str, content: str, commit_msg: str) -> bool:
-            """Create or update a file in a GitHub repository via Contents API."""
-            if not REQ_OK:
-                return False
-            token, repo = _gh_cfg()
-            if not token or not repo:
-                return False
-        
-            url     = f"https://api.github.com/repos/{repo}/contents/{path}"
-            headers = {"Authorization": f"token {token}",
-                       "Accept": "application/vnd.github+json"}
-        
-            # Fetch existing SHA (needed for update)
-            sha = None
-            r   = requests.get(url, headers=headers, timeout=8)
-            if r.status_code == 200:
-                sha = r.json().get("sha")
-        
-            encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-            payload: dict = {"message": commit_msg, "content": encoded}
-            if sha:
-                payload["sha"] = sha
-        
-            resp = requests.put(url, headers=headers, json=payload, timeout=10)
-            return resp.status_code in (200, 201)
-        
-        
-        def sync_users_to_github():
-            """Push users.json to GitHub (call after register/delete)."""
-            if USERS_FILE.exists():
-                gh_push_file("data/users.json",
-                             USERS_FILE.read_text("utf-8"),
-                             f"update users {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-        
-        
-        def sync_logs_to_github():
-            """Push logs.json to GitHub (call after add_log)."""
-            if LOGS_FILE.exists():
-                gh_push_file("data/logs.json",
-                             LOGS_FILE.read_text("utf-8"),
-                             f"update logs {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-        
-        
-        def sync_feedback_to_github(uname: str, text: str):
-            """Append feedback entry to data/feedback.json on GitHub."""
-            token, repo = _gh_cfg()
-            if not token or not repo:
-                return
-            url     = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
-            headers = {"Authorization": f"token {token}",
-                       "Accept": "application/vnd.github+json"}
-            # Load existing
+# ════════════════════════════════════════════════════════════════════════════
+# GITHUB REPO FILE SYNC  (users.json / logs.json pushed to repository)
+# ════════════════════════════════════════════════════════════════════════════
+def _gh_cfg() -> tuple[str, str]:
+    """Read GitHub token + repo from st.secrets or session_state."""
+    try:
+        tok  = st.secrets.get("GH_TOKEN", st.session_state.get("gh_token",""))
+        repo = st.secrets.get("GH_REPO",  st.session_state.get("gh_repo",""))
+        return tok, repo
+    except Exception:
+        return (st.session_state.get("gh_token",""),
+                st.session_state.get("gh_repo",""))
+
+
+def gh_push_file(path: str, content: str, commit_msg: str) -> bool:
+    """Create or update a file in a GitHub repository via Contents API."""
+    if not REQ_OK:
+        return False
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return False
+
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+
+    # Fetch existing SHA (needed for update)
+    sha = None
+    r   = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+
+    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+    payload: dict = {"message": commit_msg, "content": encoded}
+    if sha:
+        payload["sha"] = sha
+
+    resp = requests.put(url, headers=headers, json=payload, timeout=10)
+    return resp.status_code in (200, 201)
+
+
+def sync_users_to_github():
+    """Push users.json to GitHub (call after register/delete)."""
+    if USERS_FILE.exists():
+        gh_push_file("data/users.json",
+                     USERS_FILE.read_text("utf-8"),
+                     f"update users {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_logs_to_github():
+    """Push logs.json to GitHub (call after add_log)."""
+    if LOGS_FILE.exists():
+        gh_push_file("data/logs.json",
+                     LOGS_FILE.read_text("utf-8"),
+                     f"update logs {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_feedback_to_github(uname: str, text: str):
+    """Append feedback entry to data/feedback.json on GitHub."""
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return
+    url     = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+    # Load existing
+    existing = []
+    sha = None
+    r = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+        try:
+            existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+        except Exception:
             existing = []
-            sha = None
-            r = requests.get(url, headers=headers, timeout=8)
-            if r.status_code == 200:
-                sha = r.json().get("sha")
-                try:
-                    existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
-                except Exception:
-                    existing = []
-            existing.append({"user": uname, "text": text,
-                             "ts": datetime.now().isoformat()})
-            encoded = base64.b64encode(
-                json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
-            ).decode("utf-8")
-            payload: dict = {"message": f"feedback from {uname}", "content": encoded}
-            if sha:
-                payload["sha"] = sha
-            requests.put(url, headers=headers, json=payload, timeout=10)
+    existing.append({"user": uname, "text": text,
+                     "ts": datetime.now().isoformat()})
+    encoded = base64.b64encode(
+        json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
+    ).decode("utf-8")
+    payload: dict = {"message": f"feedback from {uname}", "content": encoded}
+    if sha:
+        payload["sha"] = sha
+    requests.put(url, headers=headers, json=payload, timeout=10)
 
     e1, e2, e3 = st.columns(3)
 

@@ -800,8 +800,7 @@ def parse_bibtex(text: str) -> list:
         for m in re.finditer(r'(\w+)\s*=\s*(\d{4})\b', raw):
             key = m.group(1).lower()
             if key not in fields:
-                fields[key] = m.g
-oformat()
+                fields[key] = m.goformat()
                         content  = json.dumps(proj, ensure_ascii=False, indent=2)
                         filename = sfn(st.session_state.art_title or "article") + "_project.json"
                         with st.spinner("Uploading to GitHub Gist…"):

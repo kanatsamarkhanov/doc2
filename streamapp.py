@@ -239,7 +239,8 @@ TR = {
     import_refs="Импорт BibTeX / текст", import_btn="Импорт",
     imported="Импортировано", ref_s="источник(ов)",
     ref_list="Список литературы", no_refs="Источники не добавлены.",
-    no_figs="Рисунки не добавлены.", no_tbls="Таблицы не добавлены.", no_forms="Формулы не добавлены.",
+    no_figs="Рисунки не добавлены.", no_tbls="Таблицы не добавлены.",
+    no_forms="Формулы не добавлены.",
     gen_title="Генерация и экспорт",
     dl_docx="📥 Скачать DOCX", dl_md="📥 Скачать Markdown",
     save_json="💾 Сохранить проект (JSON)",
@@ -316,7 +317,8 @@ TR = {
     import_refs="BibTeX / мәтін импорты", import_btn="Импорт",
     imported="Импортталды", ref_s="дереккөз(дер)",
     ref_list="Әдебиеттер тізімі", no_refs="Дереккөздер қосылмаған.",
-    no_figs="Суреттер қосылмаған.", no_tbls="Кестелер қосылмаған.", no_forms="Формулалар қосылмаған.",
+    no_figs="Суреттер қосылмаған.", no_tbls="Кестелер қосылмаған.",
+    no_forms="Формулалар қосылмаған.",
     gen_title="Генерация және экспорт",
     dl_docx="📥 DOCX жүктеу", dl_md="📥 Markdown жүктеу",
     save_json="💾 Жобаны сақтау (JSON)",
@@ -348,6 +350,346 @@ TR = {
 ),
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ════════════════════════════════════════════════════════════════════════════
+def t(key: str) -> str:
+    lang = st.session_state.get("lang", "🇬🇧 English")
+    return TR.get(lang, TR["🇬🇧 English"]).get(key, key)
+
+def wc(text: str) -> int:
+    return len(re.findall(r"\w+", text)) if text else 0
+
+def sfn(title: str) -> str:
+    return re.sub(r"[^\w\s-]", "", title)[:50].strip().replace(" ", "_") or "article"
+
+def workflow_pages() -> list:
+    return [t("nav_info"), t("nav_sec"), t("nav_fig"),
+            t("nav_tbl"), t("nav_form"), t("nav_ref"), t("nav_gen")]
+
+# ════════════════════════════════════════════════════════════════════════════
+# SESSION STATE
+# ════════════════════════════════════════════════════════════════════════════
+def init_state():
+    defaults = {
+        "logged_in": False, "username": "", "user_data": {},
+        "auth_mode": "login",          # "login" | "register"
+        "lang": "🇬🇧 English", "dark": True,
+        "page": "📄 Article Info", "cite_style": "APA 7th",
+        # article
+        "art_title": "", "authors": "", "affiliation": "",
+        "journal": "", "keywords": "", "abstract": "", "art_type_idx": 0,
+        # sections
+        "intro": "", "methods": "", "results": "", "discussion": "", "conclusion": "",
+        # collections
+        "figures": [], "tables": [], "formulas": [], "refs": [],
+        # github
+        "gh_token": "",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+init_state()
+
+# ════════════════════════════════════════════════════════════════════════════
+# CSS  (light / dark — fixed input colors, button colors, labels)
+# ════════════════════════════════════════════════════════════════════════════
+def inject_css(dark: bool = True):
+    if dark:
+        bg    = "#0f172a"; sbg = "#1e293b"; cbg = "#1e293b"; brd = "#334155"
+        fg    = "#f1f5f9"; sub = "#94a3b8"; acc = "#3b82f6"; acc2 = "#2563eb"
+        ibg   = "#0f172a"; mbg = "#162032"; btn_fg = "white"
+        inp_ph= "#64748b"; met_val = "#60a5fa"; code_bg = "#1e293b"
+    else:
+        bg    = "#f0f4f8"; sbg = "#ffffff"; cbg = "#ffffff"; brd = "#cbd5e1"
+        fg    = "#0d1f3c"; sub = "#374151"; acc = "#1d4ed8"; acc2 = "#1e40af"
+        ibg   = "#ffffff"; mbg = "#e8eef7"; btn_fg = "white"
+        inp_ph= "#6b7280"; met_val = "#1d4ed8"; code_bg = "#f1f5f9"
+
+    st.markdown(f"""<style>
+/* ══ BASE ══════════════════════════════════════════════════════ */
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+.main .block-container {{
+    background-color: {bg} !important;
+    color: {fg} !important;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}}
+
+/* ══ SIDEBAR ════════════════════════════════════════════════════ */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div {{
+    background-color: {sbg} !important;
+    border-right: 1px solid {brd};
+}}
+
+/* ══ ALL TEXT — критично для светлого режима ════════════════════ */
+h1, h2, h3, h4, h5, h6,
+p, span, li, div,
+[data-testid="stMarkdownContainer"] *,
+[data-testid="stText"],
+[data-testid="stCaptionContainer"] *,
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] span,
+label, .stRadio label p, .stCheckbox span p,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div {{
+    color: {fg} !important;
+}}
+
+/* Subtitle / caption */
+[data-testid="stCaptionContainer"],
+.stCaption, small {{
+    color: {sub} !important;
+}}
+
+/* ══ INPUTS — все поля ввода ════════════════════════════════════ */
+.stTextInput input,
+.stTextArea textarea,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea,
+[data-baseweb="base-input"] input,
+[class*="InputContainer"] input {{
+    background-color: {ibg} !important;
+    color: {fg} !important;
+    border: 1.5px solid {brd} !important;
+    border-radius: 8px !important;
+    caret-color: {fg} !important;
+    font-size: 0.92rem !important;
+}}
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {{
+    color: {inp_ph} !important;
+    opacity: 1 !important;
+}}
+.stTextInput input:focus,
+.stTextArea textarea:focus {{
+    border-color: {acc} !important;
+    box-shadow: 0 0 0 3px {'rgba(59,130,246,0.15)' if not dark else 'rgba(59,130,246,0.25)'} !important;
+}}
+
+/* ══ SELECT BOX ═════════════════════════════════════════════════ */
+[data-baseweb="select"] > div,
+[data-baseweb="select"] [role="combobox"],
+[data-baseweb="select"] span,
+[data-baseweb="select"] [data-value] {{
+    background-color: {ibg} !important;
+    color: {fg} !important;
+    border-color: {brd} !important;
+}}
+[data-baseweb="popover"] ul li,
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [role="option"] span {{
+    background-color: {cbg} !important;
+    color: {fg} !important;
+}}
+[data-baseweb="popover"] [aria-selected="true"] {{
+    background-color: {mbg} !important;
+}}
+
+/* ══ BUTTONS ════════════════════════════════════════════════════ */
+.stButton > button,
+[data-testid="stBaseButton-secondary"] {{
+    background: linear-gradient(135deg, {acc2}, {acc}) !important;
+    color: {btn_fg} !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: all .2s ease;
+}}
+.stButton > button:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px {'rgba(29,78,216,.4)' if not dark else 'rgba(59,130,246,.4)'} !important;
+}}
+[data-testid="stFormSubmitButton"] > button {{
+    background: linear-gradient(135deg, {acc2}, {acc}) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    width: 100%;
+}}
+.stDownloadButton > button {{
+    background: {'#065f46' if dark else '#047857'} !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}}
+.stDownloadButton > button:hover {{
+    background: {'#047857' if dark else '#065f46'} !important;
+}}
+/* Secondary / reset buttons */
+button[kind="secondary"],
+[data-testid="stBaseButton-minimal"] {{
+    background: {mbg} !important;
+    color: {fg} !important;
+    border: 1px solid {brd} !important;
+}}
+/* ══ TABS ════════════════════════════════════════════════════════ */
+[data-baseweb="tab-list"] {{
+    background: {mbg} !important;
+    border-radius: 10px !important;
+    padding: 4px !important;
+}}
+[data-baseweb="tab"] {{
+    background: transparent !important;
+    color: {sub} !important;
+    border-radius: 8px !important;
+}}
+[aria-selected="true"][data-baseweb="tab"] {{
+    background: {cbg} !important;
+    color: {acc} !important;
+    font-weight: 700 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.1) !important;
+}}
+
+/* ══ EXPANDER ════════════════════════════════════════════════════ */
+[data-testid="stExpander"] {{
+    background: {cbg} !important;
+    border: 1px solid {brd} !important;
+    border-radius: 10px !important;
+}}
+[data-testid="stExpander"] summary span,
+[data-testid="stExpander"] p {{
+    color: {fg} !important;
+}}
+
+/* ══ DATAFRAME / TABLE ══════════════════════════════════════════ */
+[data-testid="stDataFrame"] th {{
+    background: {mbg} !important;
+    color: {fg} !important;
+}}
+[data-testid="stDataFrame"] td {{
+    color: {fg} !important;
+    background: {cbg} !important;
+}}
+
+/* ══ PROGRESS BAR ════════════════════════════════════════════════ */
+[data-testid="stProgressBar"] > div {{
+    background: {mbg} !important;
+}}
+[data-testid="stProgressBar"] > div > div {{
+    background: linear-gradient(90deg, {acc2}, {acc}) !important;
+}}
+
+/* ══ DIVIDER ═════════════════════════════════════════════════════ */
+hr {{ border-color: {brd} !important; }}
+
+/* ══ CODE / LATEX ════════════════════════════════════════════════ */
+code, pre {{
+    background: {code_bg} !important;
+    color: {'#93c5fd' if dark else '#1d4ed8'} !important;
+    border-radius: 6px !important;
+    padding: 2px 6px !important;
+}}
+
+/* ══ ALERTS / TOASTS ═════════════════════════════════════════════ */
+[data-testid="stAlert"] {{
+    border-radius: 10px !important;
+}}
+[data-testid="stAlert"] p {{
+    color: {fg} !important;
+}}
+
+/* ══ METRIC CARD ═════════════════════════════════════════════════ */
+.mc {{
+    background: {mbg};
+    border: 1px solid {brd};
+    border-radius: 12px;
+    padding: 14px 18px;
+    text-align: center;
+}}
+.mv {{ font-size: 1.8rem; font-weight: 800; color: {met_val}; }}
+.ml {{ font-size: 0.74rem; color: {sub}; margin-top: 2px; }}
+
+/* ══ PREVIEW PANEL ════════════════════════════════════════════════ */
+.pv {{
+    background: {cbg};
+    border: 1px solid {brd};
+    border-radius: 12px;
+    padding: 24px 28px;
+    font-family: 'Times New Roman', serif;
+    line-height: 1.8;
+}}
+.pt {{ font-size: 1.2rem; font-weight: 700; text-align: center; color: {fg}; }}
+.pa {{ text-align: center; color: {sub}; font-size: 0.86rem; margin-bottom: 12px; }}
+.ph {{
+    font-weight: 700; color: {acc};
+    border-bottom: 1px solid {brd};
+    padding-bottom: 3px; margin-top: 14px; font-size: 0.98rem;
+}}
+.pab {{
+    background: {mbg}; border-left: 4px solid {acc};
+    padding: 10px 14px; border-radius: 0 8px 8px 0;
+    margin: 10px 0; font-size: 0.86rem; color: {sub};
+}}
+
+/* ══ REFERENCE ITEM ══════════════════════════════════════════════ */
+.ri {{
+    background: {cbg}; border: 1px solid {brd};
+    border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 6px; font-size: 0.83rem; color: {fg};
+}}
+.rn {{ color: {acc}; font-weight: 700; }}
+
+/* ══ FAB ══════════════════════════════════════════════════════════ */
+.fab {{
+    position: fixed; bottom: 28px; right: 28px; z-index: 9999;
+    background: linear-gradient(135deg, {acc2}, {acc});
+    color: white !important;
+    padding: 13px 24px; border-radius: 50px;
+    font-weight: 700; font-size: 0.93rem;
+    box-shadow: 0 8px 30px {'rgba(59,130,246,.5)' if dark else 'rgba(29,78,216,.4)'};
+    cursor: pointer; border: none;
+}}
+
+/* ══ STEPPER ══════════════════════════════════════════════════════ */
+.stp {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }}
+.si {{
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 0.74rem; font-weight: 600;
+    border: 1px solid {brd}; color: {sub}; white-space: nowrap;
+}}
+.sa {{ background: {acc}; color: white !important; border-color: {acc}; }}
+.sd {{ background: #059669; color: white !important; border-color: #059669; }}
+
+/* ══ TOPBAR ═══════════════════════════════════════════════════════ */
+.tb {{
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; border-bottom: 1px solid {brd}; margin-bottom: 18px;
+}}
+.tt {{ font-size: 1.25rem; font-weight: 800; color: {fg}; }}
+
+/* ══ LOGIN CARD ═══════════════════════════════════════════════════ */
+.lc {{
+    max-width: 430px; margin: 60px auto;
+    background: {cbg}; border: 1px solid {brd};
+    border-radius: 20px; padding: 40px 36px;
+    box-shadow: 0 20px 60px {'rgba(0,0,0,.3)' if dark else 'rgba(0,0,0,.1)'};
+}}
+
+/* ══ QUICK STATS BADGE ════════════════════════════════════════════ */
+.qs {{
+    font-size: 0.72rem; padding: 2px 8px;
+    border-radius: 6px; font-weight: 700;
+    display: inline-block; margin: 2px;
+}}
+
+/* ══ HIDE STREAMLIT CHROME ════════════════════════════════════════ */
+footer {{ visibility: hidden; }}
+#MainMenu {{ visibility: hidden; }}
+.stDeployButton {{ display: none; }}
+</style>""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# LOGIN + REGISTER PAGE
+# ════════════════════════════════════════════════════════════════════════════
 def auth_page():
     inject_css(dark=True)
     _, mid, _ = st.columns([1, 1.15, 1])
@@ -382,8 +724,7 @@ def auth_page():
             st.markdown(
                 f'<p style="text-align:center;color:#64748b;font-size:0.78rem;">'
                 f'Demo: <b style="color:#94a3b8;">admin</b> / <b style="color:#94a3b8;">admin123</b></p>',
-                unsafe_allow_html=True
-            )
+                unsafe_allow_html=True)
 
         # ── REGISTER ──
         with tab_reg:
@@ -403,7 +744,8 @@ def auth_page():
                     if ok2:
                         st.success(t("reg_ok"))
                     else:
-                        msg = t(code) if code in ("username_taken", "email_taken", "pw_short", "uname_short") else code
+                        msg = t(code) if code in ("username_taken","email_taken",
+                                                   "pw_short","uname_short") else code
                         st.error(f"❌ {msg}")
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -563,7 +905,443 @@ def pg_sections():
         for tab, k, lbl in zip(tabs, keys, labels):
             with tab:
                 up = st.file_uploader(t("upload_docx"), type=["docx","txt"],
-   doc.add_paragraph()
+                                      key=f"up_{k}", label_visibility="collapsed")
+                if up:
+                    if up.name.endswith(".txt"):
+                        st.session_state[k] = up.read().decode("utf-8", errors="ignore")
+                    elif up.name.endswith(".docx") and DOCX_OK:
+                        try:
+                            doc = Document(BytesIO(up.read()))
+                            st.session_state[k] = "\n".join(p.text for p in doc.paragraphs)
+                        except Exception: st.warning("Cannot parse DOCX.")
+                st.session_state[k] = st.text_area(
+                    lbl, value=st.session_state[k], height=290,
+                    key=f"ed_{k}", label_visibility="collapsed",
+                    placeholder=f"Write {lbl} here…")
+                st.caption(f"📝 {t('word_count')}: {wc(st.session_state[k])}")
+
+    with R:
+        st.subheader(t("preview"))
+        parts = [f'<div class="pt">{st.session_state.art_title or "—"}</div>',
+                 f'<div class="pa">{st.session_state.authors or "—"}</div>']
+        if st.session_state.abstract:
+            ab = st.session_state.abstract
+            parts.append(f'<div class="pab"><b>Abstract:</b> {ab[:350]}{"…" if len(ab)>350 else ""}</div>')
+        for k, lbl in zip(keys, labels):
+            c = st.session_state.get(k,"")
+            if c:
+                parts.append(f'<div class="ph">{lbl}</div>'
+                             f'<p style="font-size:0.84rem;">{c[:500]}{"…" if len(c)>500 else ""}</p>')
+        st.markdown(f'<div class="pv">{"".join(parts)}</div>', unsafe_allow_html=True)
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: FIGURES
+# ════════════════════════════════════════════════════════════════════════════
+def pg_figures():
+    st.markdown(f'<div class="tb"><span class="tt">🖼️ {t("fig_mgr")}</span></div>',
+                unsafe_allow_html=True)
+    stepper(); stats_row(); st.write("")
+    L, R = st.columns(2, gap="large")
+
+    with L:
+        st.subheader(f"➕ {t('add_fig')}")
+        with st.form("ff", clear_on_submit=True):
+            fn  = st.text_input(t("fig_no"), placeholder="1")
+            fc  = st.text_input(t("fig_cap"), placeholder="Map of study area, Kazakhstan")
+            fup = st.file_uploader(t("upload_fig"), type=["png","jpg","jpeg","tif","svg"])
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and fc:
+                st.session_state.figures.append({
+                    "number":  fn or str(len(st.session_state.figures)+1),
+                    "caption": fc,
+                    "image":   fup.read() if fup else None,
+                    "name":    fup.name   if fup else None,
+                })
+                st.success("✅ Figure added")
+
+    with R:
+        st.subheader(f"📋 {t('no_figs') if not st.session_state.figures else 'Figure List'}")
+        if not st.session_state.figures:
+            st.info(t("no_figs"))
+        else:
+            for i, fig in enumerate(st.session_state.figures):
+                with st.expander(f"🖼️ Fig. {fig['number']} — {fig['caption']}"):
+                    if fig.get("image"):
+                        st.image(fig["image"], use_container_width=True)
+                    st.caption(f"📄 {fig.get('name','—')}")
+                    if st.button(f"🗑️ {t('del_btn')}", key=f"df{i}"):
+                        st.session_state.figures.pop(i); st.rerun()
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: TABLES
+# ════════════════════════════════════════════════════════════════════════════
+def pg_tables():
+    st.markdown(f'<div class="tb"><span class="tt">📊 {t("tbl_mgr")}</span></div>',
+                unsafe_allow_html=True)
+    stepper(); stats_row(); st.write("")
+    L, R = st.columns(2, gap="large")
+
+    with L:
+        st.subheader(f"➕ {t('add_tbl')}")
+        with st.form("tf", clear_on_submit=True):
+            tn = st.text_input(t("tbl_no"), placeholder="1")
+            tc = st.text_input(t("tbl_cap"), placeholder="Summary statistics of study area")
+            td = st.text_area(t("tbl_data"), height=130,
+                              placeholder="Col1,Col2,Col3\nVal1,Val2,Val3\nVal4,Val5,Val6")
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and tc:
+                st.session_state.tables.append({
+                    "number":  tn or str(len(st.session_state.tables)+1),
+                    "caption": tc, "data": td,
+                })
+                st.success("✅ Table added")
+
+    with R:
+        st.subheader(f"📋 Table List")
+        if not st.session_state.tables:
+            st.info(t("no_tbls"))
+        else:
+            for i, tbl in enumerate(st.session_state.tables):
+                with st.expander(f"📊 Table {tbl['number']} — {tbl['caption']}"):
+                    if tbl.get("data") and PD_OK:
+                        try:
+                            df = pd.read_csv(io.StringIO(tbl["data"]))
+                            st.dataframe(df, use_container_width=True)
+                        except Exception:
+                            st.text(tbl["data"])
+                    elif tbl.get("data"):
+                        st.text(tbl["data"])
+                    if st.button(f"🗑️ {t('del_btn')}", key=f"dt{i}"):
+                        st.session_state.tables.pop(i); st.rerun()
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: FORMULAS
+# ════════════════════════════════════════════════════════════════════════════
+def pg_formulas():
+    st.markdown(f'<div class="tb"><span class="tt">🧮 {t("form_mgr")}</span></div>',
+                unsafe_allow_html=True)
+    stepper(); stats_row(); st.write("")
+    L, R = st.columns(2, gap="large")
+
+    with L:
+        st.subheader(f"➕ {t('add_form')}")
+        with st.form("formf", clear_on_submit=True):
+            fnum  = st.text_input(t("form_no"), placeholder="1")
+            flatex= st.text_input(t("form_latex"),
+                                  placeholder=r"Q = \frac{1}{n} A R^{2/3} S^{1/2}")
+            fdesc = st.text_area(t("form_desc"), height=80,
+                                 placeholder="Manning's equation for open channel flow")
+            add_f = st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True)
+            if add_f and flatex:
+                st.session_state.formulas.append({
+                    "number":  fnum or str(len(st.session_state.formulas)+1),
+                    "latex":   flatex,
+                    "desc":    fdesc,
+                })
+                st.success("✅ Formula added")
+
+        # LaTeX Quick Reference
+        st.markdown("---")
+        st.markdown("**📖 LaTeX Quick Reference**")
+        ref_data = {
+            "Description": [
+                "Fraction", "Square root", "Subscript/Superscript",
+                "Integral", "Sum", "Greek letters",
+                "Manning's eq.", "Water balance", "Nash-Sutcliffe"
+            ],
+            "LaTeX code": [
+                r"\frac{a}{b}", r"\sqrt{x}", r"x_{i}^{2}",
+                r"\int_{a}^{b} f(x)dx", r"\sum_{i=1}^{n} x_i",
+                r"\alpha, \beta, \Delta",
+                r"Q = \frac{1}{n} A R^{2/3} S^{1/2}",
+                r"P = ET + \Delta S + Q",
+                r"NSE = 1 - \frac{\sum(Q_o-Q_s)^2}{\sum(Q_o-\bar{Q}_o)^2}"
+            ]
+        }
+        if PD_OK:
+            st.dataframe(pd.DataFrame(ref_data), use_container_width=True, hide_index=True)
+
+    with R:
+        st.subheader(f"👁️ {t('form_preview')}")
+        if not st.session_state.formulas:
+            st.info(t("no_forms"))
+        else:
+            for i, frm in enumerate(st.session_state.formulas):
+                with st.expander(f"🧮 ({frm['number']}) — {frm['desc'][:50] if frm['desc'] else frm['latex'][:40]}"):
+                    # Rendered preview
+                    try:
+                        st.latex(frm["latex"])
+                    except Exception:
+                        st.code(frm["latex"], language="latex")
+                    if frm.get("desc"):
+                        st.caption(f"📝 {frm['desc']}")
+                    st.markdown(f'`({frm["number"]})` — LaTeX: `{frm["latex"]}`')
+                    if st.button(f"🗑️ {t('del_btn')}", key=f"dfm{i}"):
+                        st.session_state.formulas.pop(i); st.rerun()
+
+        # Live preview input
+        st.markdown("---")
+        st.subheader("🔬 Live LaTeX Preview")
+        test_latex = st.text_input("Enter LaTeX to preview",
+                                   placeholder=r"E = mc^2",
+                                   key="latex_test")
+        if test_latex:
+            try:
+                st.latex(test_latex)
+            except Exception as e:
+                st.error(f"LaTeX error: {e}")
+
+# ════════════════════════════════════════════════════════════════════════════
+# CITATION FORMATTERS
+# ════════════════════════════════════════════════════════════════════════════
+def fmt_ref(ref: dict, style: str, n: int) -> str:
+    au  = ref.get("authors","")
+    yr  = ref.get("year","")
+    ti  = ref.get("title","")
+    jn  = ref.get("journal","")
+    vo  = ref.get("volume","")
+    no  = ref.get("number","")
+    pp  = ref.get("pages","")
+    doi = ref.get("doi","")
+    cit = ref.get("city","")
+    pub = ref.get("publisher","")
+    doi_str = f" DOI: {doi}" if doi else ""
+
+    if "ГОСТ" in style:
+        rtype = ref.get("type","")
+        if "Book" in rtype or "Книга" in rtype or "Кітап" in rtype:
+            city_pub = ""
+            if cit and pub:  city_pub = f" — {cit} : {pub}"
+            elif cit:        city_pub = f" — {cit}"
+            elif pub:        city_pub = f" — {pub}"
+            yr_str = f", {yr}" if yr else ""
+            pp_str = f". — {pp} с." if pp else ""
+            return f"{au} {ti}{city_pub}{yr_str}{pp_str}"
+        elif "Thesis" in rtype or "Диссерт" in rtype:
+            return f"{au} {ti} : дис. … канд./д-ра наук. — {cit or pub}, {yr}. — {pp} с."
+        elif "Conference" in rtype or "конференц" in rtype.lower():
+            return (f"{au} {ti} // {jn}. — {cit or pub}, {yr}. — "
+                    f"{'С. ' + pp if pp else ''}.{doi_str}")
+        else:
+            vol_str = f". — Т. {vo}" if vo else ""
+            no_str  = f", № {no}"   if no else ""
+            pp_str  = f". — С. {pp}" if pp else ""
+            return (f"{au} {ti} // {jn}. — {yr}{vol_str}{no_str}{pp_str}.{doi_str}")
+
+    elif "APA" in style:
+        vol_no = f"*{vo}*" + (f"({no})" if no else "") if vo else ""
+        return f"{au} ({yr}). {ti}. *{jn}*, {vol_no}, {pp}.{doi_str}"
+
+    elif "Vancouver" in style or "Ванкувер" in style:
+        return f"{n}. {au}. {ti}. {jn}. {yr};{vo}({no}):{pp}.{doi_str}"
+
+    elif "IEEE" in style:
+        return f'[{n}] {au}, "{ti}," *{jn}*, vol. {vo}, no. {no}, pp. {pp}, {yr}.{doi_str}'
+
+    else:
+        return f"{au} {yr}, '{ti}', *{jn}*, vol. {vo}, no. {no}, pp. {pp}.{doi_str}"
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: REFERENCES
+# ════════════════════════════════════════════════════════════════════════════
+def pg_refs():
+    st.markdown(f'<div class="tb"><span class="tt">📑 {t("ref_mgr")}</span></div>',
+                unsafe_allow_html=True)
+    stepper(); stats_row(); st.write("")
+
+    rt_list = t("ref_types")
+    cs_list = t("cite_styles")
+
+    L, R = st.columns(2, gap="large")
+
+    with L:
+        st.subheader(f"➕ {t('add_ref')}")
+        with st.form("rff", clear_on_submit=True):
+            rtype = st.selectbox(t("ref_type"), rt_list)
+            rau   = st.text_input(t("ref_au"),  placeholder="Samarkhanov K.B., Doe J.")
+            ryr   = st.text_input(t("ref_yr"),  placeholder="2024")
+            rti   = st.text_input(t("ref_ti"),  placeholder="Flood Mapping Using SAR Data")
+            rjn   = st.text_input(t("ref_jn"),  placeholder="Remote Sensing of Environment")
+            c1,c2,c3 = st.columns(3)
+            rvo   = c1.text_input(t("ref_vol"), placeholder="15")
+            rno   = c2.text_input(t("ref_no"),  placeholder="3")
+            rpp   = c3.text_input(t("ref_pp"),  placeholder="1234–1250")
+            rdoi  = st.text_input(t("ref_doi"), placeholder="10.3390/rs15051234")
+
+            show_extra = rtype in ["Book","Книга","Кітап","Thesis","Диссертация"]
+            if show_extra:
+                cx1, cx2 = st.columns(2)
+                rcit = cx1.text_input(t("ref_city"), placeholder="Алматы")
+                rpub = cx2.text_input(t("ref_pub"),  placeholder="Гылым")
+            else:
+                rcit = rpub = ""
+
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True) and rti:
+                st.session_state.refs.append({
+                    "type": rtype, "authors": rau, "year": ryr, "title": rti,
+                    "journal": rjn, "volume": rvo, "number": rno,
+                    "pages": rpp, "doi": rdoi, "city": rcit, "publisher": rpub,
+                })
+                st.success("✅ Reference added")
+
+        st.divider()
+        st.subheader(f"📥 {t('import_refs')}")
+
+        bib_input = st.text_area(
+            "BibTeX / plain text",
+            height=160,
+            placeholder=(
+                "@article{samarkhanov2024,\n"
+                "  author  = {Samarkhanov, Kanat and Doe, John},\n"
+                "  title   = {Flood mapping in Kazakhstan},\n"
+                "  journal = {Remote Sensing},\n"
+                "  year    = {2024},\n"
+                "  volume  = {16},\n"
+                "  number  = {5},\n"
+                "  pages   = {123--145},\n"
+                "  doi     = {10.3390/rs16050123}\n"
+                "}"
+            ),
+            key="bib_input_area"
+        )
+
+        col_i1, col_i2 = st.columns(2)
+        with col_i1:
+            if st.button(f"🔬 {t('import_btn')} BibTeX", use_container_width=True):
+                if bib_input.strip():
+                    parsed = parse_bibtex(bib_input)
+                    if parsed:
+                        st.session_state.refs.extend(parsed)
+                        st.success(f"✅ {t('imported')} {len(parsed)} {t('ref_s')}")
+                    else:
+                        st.warning("⚠️ No valid BibTeX entries found. "
+                                   "Make sure entries start with @article{...}")
+                else:
+                    st.warning("⚠️ Paste BibTeX first.")
+
+        with col_i2:
+            if st.button("📄 Import as plain text", use_container_width=True):
+                lines = [l.strip() for l in bib_input.split("\n") if l.strip()]
+                for ln in lines:
+                    st.session_state.refs.append({
+                        "type":"Journal Article","authors":"","year":"",
+                        "title": ln,"journal":"","volume":"","number":"",
+                        "pages":"","doi":"","city":"","publisher":""})
+                st.success(f"✅ {t('imported')} {len(lines)} {t('ref_s')}")
+
+        if st.button(t("import_btn")):
+            lines = [l.strip() for l in bib.split("\n") if l.strip()]
+            for ln in lines:
+                st.session_state.refs.append({
+                    "type":"Journal Article","authors":"","year":"",
+                    "title": ln,"journal":"","volume":"","number":"",
+                    "pages":"","doi":"","city":"","publisher":""})
+            st.success(f"{t('imported')} {len(lines)} {t('ref_s')}")
+
+    with R:
+        st.subheader(f"📋 {t('ref_list')}")
+        style = st.selectbox(t("cite_style_label"), cs_list, key="rs_sel")
+        st.session_state.cite_style = style
+
+        if not st.session_state.refs:
+            st.info(t("no_refs"))
+        else:
+            for i, ref in enumerate(st.session_state.refs):
+                c1, c2 = st.columns([11, 1])
+                c1.markdown(
+                    f'<div class="ri"><span class="rn">[{i+1}]</span> '
+                    f'{fmt_ref(ref, style, i+1)}</div>',
+                    unsafe_allow_html=True)
+                if c2.button("🗑️", key=f"dr{i}", help=t("del_btn")):
+                    st.session_state.refs.pop(i); st.rerun()
+
+# ════════════════════════════════════════════════════════════════════════════
+# DOCX BUILDER
+# ════════════════════════════════════════════════════════════════════════════
+def build_docx() -> BytesIO:
+    doc  = Document()
+    sec  = doc.sections[0]
+    sec.top_margin    = Inches(1);    sec.bottom_margin = Inches(1)
+    sec.left_margin   = Inches(1.25); sec.right_margin  = Inches(1.25)
+    BLUE = RGBColor(0x1a, 0x56, 0xdb)
+
+    def add_heading_colored(text, level=1):
+        h = doc.add_heading(text, level=level)
+        if h.runs: h.runs[0].font.color.rgb = BLUE
+        return h
+
+    tp = doc.add_paragraph(); tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r  = tp.add_run(st.session_state.art_title or "Untitled")
+    r.bold = True; r.font.size = Pt(16); r.font.color.rgb = BLUE
+
+    if st.session_state.authors:
+        ap = doc.add_paragraph(); ap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        ap.add_run(st.session_state.authors).bold = True
+
+    if st.session_state.affiliation:
+        af = doc.add_paragraph(); af.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r2 = af.add_run(st.session_state.affiliation)
+        r2.font.size = Pt(10); r2.font.color.rgb = RGBColor(0x64,0x74,0x8b)
+
+    if st.session_state.keywords:
+        kp = doc.add_paragraph(); kp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r3 = kp.add_run(f"Keywords: {st.session_state.keywords}")
+        r3.italic = True; r3.font.size = Pt(10)
+
+    doc.add_paragraph()
+
+    if st.session_state.abstract:
+        add_heading_colored("Abstract", 2)
+        doc.add_paragraph(st.session_state.abstract)
+        doc.add_paragraph()
+
+    keys   = ["intro","methods","results","discussion","conclusion"]
+    labels = [t("intro"),t("methods"),t("results"),t("discussion"),t("conclusion")]
+    for i, (k, lbl) in enumerate(zip(keys, labels), 1):
+        if st.session_state.get(k,"").strip():
+            add_heading_colored(f"{i}. {lbl}", 1)
+            doc.add_paragraph(st.session_state[k])
+            doc.add_paragraph()
+
+    if st.session_state.formulas:
+        add_heading_colored("Formulas / Equations", 1)
+        for frm in st.session_state.formulas:
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            r4 = p.add_run(f"({frm['number']})   {frm['latex']}")
+            r4.font.name = "Cambria Math"; r4.font.size = Pt(12)
+            if frm.get("desc"):
+                dp = doc.add_paragraph(frm["desc"])
+                dp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                if dp.runs: dp.runs[0].italic = True; dp.runs[0].font.size = Pt(10)
+            doc.add_paragraph()
+
+    if st.session_state.figures:
+        add_heading_colored("Figures", 1)
+        for fig in st.session_state.figures:
+            if fig.get("image"):
+                try: doc.add_picture(BytesIO(fig["image"]), width=Inches(4.5))
+                except Exception: pass
+            cp = doc.add_paragraph(f"Figure {fig['number']}. {fig['caption']}")
+            cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if cp.runs:
+                cp.runs[0].italic = True; cp.runs[0].font.size = Pt(9)
+            doc.add_paragraph()
+
+    if st.session_state.tables and PD_OK:
+        for tbl in st.session_state.tables:
+            tp2 = doc.add_paragraph(f"Table {tbl['number']}. {tbl['caption']}")
+            if tp2.runs: tp2.runs[0].bold = True
+            if tbl.get("data"):
+                try:
+                    df = pd.read_csv(io.StringIO(tbl["data"]))
+                    wt = doc.add_table(rows=len(df)+1, cols=len(df.columns))
+                    wt.style = "Table Grid"
+                    for ci, col in enumerate(df.columns):
+                        wt.cell(0, ci).text = str(col)
+                    for ri in range(len(df)):
+                        for ci in range(len(df.columns)):
+                            wt.cell(ri+1, ci).text = str(df.iloc[ri, ci])
+                except Exception: pass
+            doc.add_paragraph()
 
     if st.session_state.refs:
         add_heading_colored("References", 1)
@@ -646,9 +1424,8 @@ def pg_generate():
 
     for i,(k,lbl) in enumerate(zip(keys,labels),1):
         c = st.session_state.get(k,"")
-        if c:
-            parts.append(f'<div class="ph">{i}. {lbl}</div>'
-                         f'<p style="font-size:0.84rem;">{c}</p>')
+        if c: parts.append(f'<div class="ph">{i}. {lbl}</div>'
+                           f'<p style="font-size:0.84rem;">{c}</p>')
 
     if st.session_state.formulas:
         parts.append(f'<div class="ph">Formulas</div>')
@@ -667,93 +1444,23 @@ def pg_generate():
 
     st.markdown("### 📥 Export")
     fn = sfn(st.session_state.art_title)
-
-    e1, e2, e3 = st.columns(3)
-
-    with e1:
-        if DOCX_OK:
-            with st.spinner(t("downloading")):
-                buf = build_docx()
-            st.download_button(
-                t("dl_docx"),
-                buf,
-                f"{fn}.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
-            )
-            st.success(t("success_gen"))
-        else:
-            st.error("pip install python-docx")
-
-    with e2:
-        md_lines = [
-            f"# {st.session_state.art_title}",
-            f"**{st.session_state.authors}**",
-            f"*{st.session_state.affiliation}*",
-            "",
-            f"**Keywords:** {st.session_state.keywords}",
-            "",
-            f"## Abstract\n\n{st.session_state.abstract}",
-            "",
-        ]
-        for i, (k, lbl) in enumerate(zip(keys, labels), 1):
-            if st.session_state.get(k, ""):
-                md_lines += [f"## {i}. {lbl}", st.session_state[k], ""]
-        if st.session_state.formulas:
-            md_lines.append("## Formulas\n")
-            for frm in st.session_state.formulas:
-                md_lines.append(f"({frm['number']}) {frm['latex']}")
-                if frm.get("desc"):
-                    md_lines.append(f"*{frm['desc']}*")
-                md_lines.append("")
-        if st.session_state.refs:
-            md_lines.append("## References\n")
-            cs = st.session_state.cite_style
-            for j, ref in enumerate(st.session_state.refs, 1):
-                md_lines.append(fmt_ref(ref, cs, j))
-
-        st.download_button(
-            t("dl_md"),
-            "\n".join(md_lines).encode("utf-8"),
-            f"{fn}.md",
-            "text/markdown",
-            use_container_width=True
-        )
-
-    with e3:
-        proj = {k: st.session_state.get(k, "") for k in [
-            "art_title", "authors", "affiliation", "journal", "keywords", "abstract",
-            "intro", "methods", "results", "discussion", "conclusion", "cite_style"
-        ]}
-        proj["refs"] = st.session_state.refs
-        proj["formulas"] = st.session_state.formulas
-        proj["tables"] = st.session_state.tables
-        proj["exported_at"] = datetime.now().isoformat()
-
-        st.download_button(
-            t("save_json"),
-            json.dumps(proj, ensure_ascii=False, indent=2).encode("utf-8"),
-            f"{fn}_project.json",
-            "application/json",
-            use_container_width=True
-        )
-
+    
+    # ── Feedback block ────────────────────────────────────────────
     st.write("")
-    with st.expander("💬 Feedback", expanded=False):
-        with st.form("fb_form", clear_on_submit=True):
-            fb_text = st.text_area(
-                "Leave a comment or suggestion",
-                height=100,
-                placeholder="Your feedback helps improve Smart Article…"
-            )
-            fb_ok = st.form_submit_button("📨 Send Feedback", use_container_width=True)
-        if fb_ok and fb_text.strip():
-            add_log("feedback", st.session_state.username, fb_text[:200])
-            sync_logs_to_github()
-            sync_feedback_to_github(st.session_state.username, fb_text)
-            _notify_feedback(st.session_state.username, fb_text)
-            st.success("✅ Feedback sent! Thank you.")
-
+    st.markdown("---")
+    st.subheader("💬 Feedback")
+    with st.form("fb_form", clear_on_submit=True):
+        fb_text = st.text_area("Leave a comment or suggestion", height=100,
+                               placeholder="Your feedback helps improve Smart Article…")
+        fb_ok = st.form_submit_button("📨 Send Feedback", use_container_width=True)
+    if fb_ok and fb_text.strip():
+        add_log("feedback", st.session_state.username, fb_text[:200])
+        sync_logs_to_github()
+        sync_feedback_to_github(st.session_state.username, fb_text)
+        _notify_feedback(st.session_state.username, fb_text)
+        st.success("✅ Feedback sent! Thank you.")
+    
+    # ════════════════════════════════════════════════════════════════════════════
 # ════════════════════════════════════════════════════════════════════════════
 # BIBTEX PARSER  (no external library — pure regex)
 # ════════════════════════════════════════════════════════════════════════════
@@ -814,7 +1521,504 @@ def parse_bibtex(text: str) -> list:
         for m in re.finditer(r'(\w+)\s*=\s*(\d{4})\b', raw):
             key = m.group(1).lower()
             if key not in fields:
-                fields[key] = m.goformat()
+                fields[key] = m.group(2)
+
+        title = fields.get("title", "").strip()
+        if not title:
+            continue   # skip entries without title
+
+        # Author: "Last, First and Last2, First2" → "Last F., Last2 F2."
+        raw_authors = fields.get("author", "")
+        authors_out = _fmt_authors(raw_authors) if raw_authors else ""
+
+        ref = {
+            "type":      TYPE_MAP.get(entry_type, "Journal Article"),
+            "authors":   authors_out,
+            "year":      fields.get("year", ""),
+            "title":     title,
+            "journal":   fields.get("journal",
+                         fields.get("booktitle",
+                         fields.get("series", ""))),
+            "volume":    fields.get("volume", ""),
+            "number":    fields.get("number", ""),
+            "pages":     fields.get("pages", "").replace("--", "–"),
+            "doi":       fields.get("doi", ""),
+            "city":      fields.get("address", ""),
+            "publisher": fields.get("publisher", ""),
+        }
+        results.append(ref)
+
+    return results
+
+
+def _fmt_authors(raw: str) -> str:
+    """Format BibTeX author string → 'Last F., Last2 F2.' style."""
+    parts = [a.strip() for a in re.split(r'\s+and\s+', raw, flags=re.IGNORECASE)]
+    out   = []
+    for p in parts:
+        if not p:
+            continue
+        if "," in p:                       # "Last, First Middle"
+            segments = [s.strip() for s in p.split(",", 1)]
+            last  = segments[0]
+            first = segments[1] if len(segments) > 1 else ""
+            initials = "".join(w[0].upper() + "." for w in first.split() if w)
+            out.append(f"{last} {initials}".strip())
+        else:                              # "First Middle Last"
+            words = p.split()
+            if len(words) >= 2:
+                last  = words[-1]
+                inits = "".join(w[0].upper() + "." for w in words[:-1])
+                out.append(f"{last} {inits}".strip())
+            else:
+                out.append(p)
+    return ", ".join(out)
+# ════════════════════════════════════════════════════════════════════════════
+# EMAIL NOTIFICATION  (Gmail SMTP + App Password)
+# ════════════════════════════════════════════════════════════════════════════
+def _smtp_cfg() -> tuple[str, str]:
+    """Read SMTP credentials from st.secrets or session_state."""
+    try:
+        u = st.secrets.get("SMTP_USER", st.session_state.get("smtp_user", ""))
+        p = st.secrets.get("SMTP_PASS", st.session_state.get("smtp_pass", ""))
+        return u, p
+    except Exception:
+        return (st.session_state.get("smtp_user",""),
+                st.session_state.get("smtp_pass",""))
+
+
+def send_notification(subject: str, html_body: str,
+                      to: str = "kanat.baurzhanuly@gmail.com") -> bool:
+    smtp_user, smtp_pass = _smtp_cfg()
+    if not smtp_user or not smtp_pass:
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[Smart Article] {subject}"
+        msg["From"]    = smtp_user
+        msg["To"]      = to
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as srv:
+            srv.ehlo(); srv.starttls(); srv.ehlo()
+            srv.login(smtp_user, smtp_pass)
+            srv.sendmail(smtp_user, to, msg.as_string())
+        return True
+    except Exception:
+        return False
+
+
+def _notify_register(uname: str, email: str, role: str):
+    body = f"""
+<h3>🆕 New Registration — Smart Article</h3>
+<table>
+<tr><td><b>Username</b></td><td>{uname}</td></tr>
+<tr><td><b>Email</b></td><td>{email}</td></tr>
+<tr><td><b>Role</b></td><td>{role}</td></tr>
+<tr><td><b>Time</b></td><td>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td></tr>
+</table>"""
+    send_notification(f"New user: {uname}", body)
+
+
+def _notify_login(uname: str):
+    body = f"""
+<h3>🔑 Login Event — Smart Article</h3>
+<p><b>User:</b> {uname}<br>
+<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"""
+    send_notification(f"Login: {uname}", body)
+
+
+def _notify_feedback(uname: str, feedback_text: str):
+    body = f"""
+<h3>💬 Feedback — Smart Article</h3>
+<p><b>From:</b> {uname}<br>
+<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<hr>
+<p>{feedback_text}</p>"""
+    send_notification(f"Feedback from {uname}", body)
+
+# ════════════════════════════════════════════════════════════════════════════
+# GITHUB REPO FILE SYNC  (users.json / logs.json pushed to repository)
+# ════════════════════════════════════════════════════════════════════════════
+def _gh_cfg() -> tuple[str, str]:
+    """Read GitHub token + repo from st.secrets or session_state."""
+    try:
+        tok  = st.secrets.get("GH_TOKEN", st.session_state.get("gh_token",""))
+        repo = st.secrets.get("GH_REPO",  st.session_state.get("gh_repo",""))
+        return tok, repo
+    except Exception:
+        return (st.session_state.get("gh_token",""),
+                st.session_state.get("gh_repo",""))
+
+
+def gh_push_file(path: str, content: str, commit_msg: str) -> bool:
+    """Create or update a file in a GitHub repository via Contents API."""
+    if not REQ_OK:
+        return False
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return False
+
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+
+    # Fetch existing SHA (needed for update)
+    sha = None
+    r   = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+
+    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+    payload: dict = {"message": commit_msg, "content": encoded}
+    if sha:
+        payload["sha"] = sha
+
+    resp = requests.put(url, headers=headers, json=payload, timeout=10)
+    return resp.status_code in (200, 201)
+
+
+def sync_users_to_github():
+    """Push users.json to GitHub (call after register/delete)."""
+    if USERS_FILE.exists():
+        gh_push_file("data/users.json",
+                     USERS_FILE.read_text("utf-8"),
+                     f"update users {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_logs_to_github():
+    """Push logs.json to GitHub (call after add_log)."""
+    if LOGS_FILE.exists():
+        gh_push_file("data/logs.json",
+                     LOGS_FILE.read_text("utf-8"),
+                     f"update logs {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_feedback_to_github(uname: str, text: str):
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return
+    url = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    existing = []
+    sha = None
+    r = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+        try:
+            existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+        except Exception:
+            existing = []
+
+    existing.append({
+        "user": uname,
+        "text": text,
+        "ts": datetime.now().isoformat()
+    })
+
+    encoded = base64.b64encode(
+        json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
+    ).decode("utf-8")
+
+    payload = {"message": f"feedback from {uname}", "content": encoded}
+    if sha:
+        payload["sha"] = sha
+
+    requests.put(url, headers=headers, json=payload, timeout=10)
+        
+# ════════════════════════════════════════════════════════════════════════════
+# GITHUB REPO FILE SYNC  (users.json / logs.json pushed to repository)
+# ════════════════════════════════════════════════════════════════════════════
+def _gh_cfg() -> tuple[str, str]:
+    """Read GitHub token + repo from st.secrets or session_state."""
+    try:
+        tok  = st.secrets.get("GH_TOKEN", st.session_state.get("gh_token",""))
+        repo = st.secrets.get("GH_REPO",  st.session_state.get("gh_repo",""))
+        return tok, repo
+    except Exception:
+        return (st.session_state.get("gh_token",""),
+                st.session_state.get("gh_repo",""))
+
+
+def gh_push_file(path: str, content: str, commit_msg: str) -> bool:
+    """Create or update a file in a GitHub repository via Contents API."""
+    if not REQ_OK:
+        return False
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return False
+
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+
+    # Fetch existing SHA (needed for update)
+    sha = None
+    r   = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+
+    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+    payload: dict = {"message": commit_msg, "content": encoded}
+    if sha:
+        payload["sha"] = sha
+
+    resp = requests.put(url, headers=headers, json=payload, timeout=10)
+    return resp.status_code in (200, 201)
+
+
+def sync_users_to_github():
+    """Push users.json to GitHub (call after register/delete)."""
+    if USERS_FILE.exists():
+        gh_push_file("data/users.json",
+                     USERS_FILE.read_text("utf-8"),
+                     f"update users {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_logs_to_github():
+    """Push logs.json to GitHub (call after add_log)."""
+    if LOGS_FILE.exists():
+        gh_push_file("data/logs.json",
+                     LOGS_FILE.read_text("utf-8"),
+                     f"update logs {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+
+def sync_feedback_to_github(uname: str, text: str):
+    """Append feedback entry to data/feedback.json on GitHub."""
+    token, repo = _gh_cfg()
+    if not token or not repo:
+        return
+    url     = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
+    headers = {"Authorization": f"token {token}",
+               "Accept": "application/vnd.github+json"}
+    # Load existing
+    existing = []
+    sha = None
+    r = requests.get(url, headers=headers, timeout=8)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+        try:
+            existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+        except Exception:
+            existing = []
+    existing.append({"user": uname, "text": text,
+                     "ts": datetime.now().isoformat()})
+    encoded = base64.b64encode(
+        json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
+    ).decode("utf-8")
+    payload: dict = {"message": f"feedback from {uname}", "content": encoded}
+    if sha:
+        payload["sha"] = sha
+    requests.put(url, headers=headers, json=payload, timeout=10)
+
+    e1, e2, e3 = st.columns(3)
+
+    with e1:
+        if DOCX_OK:
+            with st.spinner(t("downloading")):
+                buf = build_docx()
+            st.download_button(
+                t("dl_docx"),
+                buf,
+                f"{fn}.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True
+            )
+            st.success(t("success_gen"))
+        else:
+            st.error("pip install python-docx")
+
+    with e2:
+        md_lines = [
+            f"# {st.session_state.art_title}",
+            f"**{st.session_state.authors}**",
+            f"*{st.session_state.affiliation}*",
+            "",
+            f"**Keywords:** {st.session_state.keywords}",
+            "",
+            f"## Abstract\n\n{st.session_state.abstract}",
+            "",
+        ]
+        for i, (k, lbl) in enumerate(zip(keys, labels), 1):
+            if st.session_state.get(k, ""):
+                md_lines += [f"## {i}. {lbl}", st.session_state[k], ""]
+
+        if st.session_state.formulas:
+            md_lines.append("## Formulas\n")
+            for frm in st.session_state.formulas:
+                md_lines.append(f"$$({frm['number']}) \\quad {frm['latex']}$$")
+                if frm.get("desc"):
+                    md_lines.append(f"*{frm['desc']}*")
+                md_lines.append("")
+
+        if st.session_state.refs:
+            md_lines.append("## References\n")
+            cs = st.session_state.cite_style
+            for j, ref in enumerate(st.session_state.refs, 1):
+                md_lines.append(fmt_ref(ref, cs, j))
+
+        st.download_button(
+            t("dl_md"),
+            "\n".join(md_lines).encode("utf-8"),
+            f"{fn}.md",
+            "text/markdown",
+            use_container_width=True
+        )
+
+    with e3:
+        proj = {k: st.session_state.get(k, "") for k in [
+            "art_title", "authors", "affiliation", "journal", "keywords", "abstract",
+            "intro", "methods", "results", "discussion", "conclusion", "cite_style"
+        ]}
+        proj["refs"] = st.session_state.refs
+        proj["formulas"] = st.session_state.formulas
+        proj["tables"] = st.session_state.tables
+        proj["exported_at"] = datetime.now().isoformat()
+
+        st.download_button(
+            t("save_json"),
+            json.dumps(proj, ensure_ascii=False, indent=2).encode("utf-8"),
+            f"{fn}_project.json",
+            "application/json",
+            use_container_width=True
+        )
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAGE: SETTINGS
+# ════════════════════════════════════════════════════════════════════════════
+def pg_settings():
+    st.markdown(f'<div class="tb"><span class="tt">⚙️ {t("settings_title")}</span></div>',
+                unsafe_allow_html=True)
+    st.write("")
+
+    T1, T2, T3 = st.tabs(["🎨 Theme & Style", "📂 Project", "☁️ GitHub Gist"])
+
+    with T1:
+        st.subheader(t("theme_label"))
+        themes = t("themes")
+        choice = st.radio(t("theme_label"), themes,
+                          index=0 if st.session_state.dark else 1,
+                          horizontal=True, label_visibility="collapsed")
+        st.session_state.dark = (choice == themes[0])
+
+        st.subheader(t("cite_style_label"))
+        cs_list = t("cite_styles")
+        cs = st.selectbox(t("cite_style_label"), cs_list,
+                          index=cs_list.index(st.session_state.cite_style)
+                          if st.session_state.cite_style in cs_list else 0,
+                          label_visibility="collapsed")
+        st.session_state.cite_style = cs
+
+        st.divider()
+        if st.session_state.username == "admin":
+            st.subheader("📋 Activity Log (admin)")
+            logs = load_logs()
+            if logs and PD_OK:
+                df_log = pd.DataFrame(logs[-50:][::-1])
+                st.dataframe(df_log, use_container_width=True, hide_index=True)
+            elif logs:
+                for entry in logs[-10:][::-1]:
+                    st.caption(f"{entry['ts']}  [{entry['event']}]  {entry['username']}  {entry.get('detail','')}")
+
+        st.divider()
+        st.subheader("📧 Email Notifications (SMTP)")
+        st.info("Configure Gmail SMTP to receive login/register/feedback alerts. "
+                "Use Gmail App Password (not your regular password).")
+        c1, c2 = st.columns(2)
+        st.session_state["smtp_user"] = c1.text_input(
+            "Gmail address", value=st.session_state.get("smtp_user",""),
+            placeholder="your@gmail.com")
+        st.session_state["smtp_pass"] = c2.text_input(
+            "App Password", value=st.session_state.get("smtp_pass",""),
+            type="password", placeholder="xxxx xxxx xxxx xxxx")
+        if st.button("🧪 Test Email"):
+            ok = send_notification(
+                "Test from Smart Article",
+                f"<p>✅ SMTP is working!<br>Time: {datetime.now()}</p>")
+            st.success("✅ Email sent!") if ok else st.error(
+                "❌ Failed. Check Gmail address and App Password.")
+
+        st.divider()
+        st.subheader("☁️ GitHub Repository Sync")
+        st.info("Stores users.json, logs.json, feedback.json in your GitHub repo. "
+                "Token needs `repo` scope.")
+        c3, c4 = st.columns(2)
+        st.session_state["gh_token"] = c3.text_input(
+            "GitHub Token", value=st.session_state.get("gh_token",""),
+            type="password", placeholder="ghp_xxxx")
+        st.session_state["gh_repo"]  = c4.text_input(
+            "Repository (owner/name)", value=st.session_state.get("gh_repo",""),
+            placeholder="username/smart-article-data")
+        if st.button("🧪 Test GitHub Connection"):
+            token, repo = st.session_state["gh_token"], st.session_state["gh_repo"]
+            if token and repo and REQ_OK:
+                r = requests.get(f"https://api.github.com/repos/{repo}",
+                                 headers={"Authorization": f"token {token}"}, timeout=8)
+                if r.status_code == 200:
+                    st.success(f"✅ Connected to: {r.json().get('full_name')}")
+                else:
+                    st.error(f"❌ Error {r.status_code}: {r.json().get('message','')}")
+            else:
+                st.warning("Enter token and repo name first.")
+                    
+
+    with T2:
+        L2, R2 = st.columns(2)
+        with L2:
+            st.subheader(t("load_json"))
+            st.info(t("load_json_help"))
+            upf = st.file_uploader("Upload JSON project file", type="json")
+            if upf:
+                try:
+                    data = json.load(upf)
+                    for f in ["art_title","authors","affiliation","journal","keywords",
+                              "abstract","intro","methods","results","discussion",
+                              "conclusion","refs","tables","formulas","cite_style"]:
+                        if f in data:
+                            st.session_state[f] = data[f]
+                    st.success(t("loaded"))
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        with R2:
+            st.subheader(f"🗑️ {t('reset_btn')}")
+            st.warning("This will erase all article data in the current session.")
+            if st.button(t("reset_btn"), type="secondary"):
+                for k in ["art_title","authors","affiliation","journal","keywords",
+                          "abstract","intro","methods","results","discussion","conclusion"]:
+                    st.session_state[k] = ""
+                st.session_state.figures  = []
+                st.session_state.tables   = []
+                st.session_state.refs     = []
+                st.session_state.formulas = []
+                st.success(t("reset_ok"))
+
+    with T3:
+        st.subheader(t("gh_title"))
+        st.markdown("""> **GitHub Gist** allows you to save the project in the cloud.""")
+        if not REQ_OK:
+            st.error(t("gh_need_req"))
+        else:
+            st.session_state.gh_token = st.text_input(
+                t("gh_token"), value=st.session_state.gh_token,
+                type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
+
+            G1, G2 = st.columns(2)
+            with G1:
+                if st.button(t("gh_save"), use_container_width=True):
+                    if not st.session_state.gh_token:
+                        st.error("Enter GitHub token first.")
+                    else:
+                        proj = {k: st.session_state.get(k,"") for k in
+                                ["art_title","authors","affiliation","keywords","abstract",
+                                 "intro","methods","results","discussion","conclusion"]}
+                        proj["refs"]     = st.session_state.refs
+                        proj["formulas"] = st.session_state.formulas
+                        proj["tables"]   = st.session_state.tables
+                        proj["saved_at"] = datetime.now().isoformat()
                         content  = json.dumps(proj, ensure_ascii=False, indent=2)
                         filename = sfn(st.session_state.art_title or "article") + "_project.json"
                         with st.spinner("Uploading to GitHub Gist…"):
@@ -856,16 +2060,17 @@ def parse_bibtex(text: str) -> list:
 def fab():
     wf = workflow_pages()
     if st.session_state.page in wf:
-        is_gen = st.session_state.page == t("nav_gen")
-        col1, col2, col3 = st.columns([6, 2, 2])
-        with col3:
-            clicked = st.button(
-                f"✅ {t('gen_title')}" if is_gen else f"🚀 {t('gen_title')}",
-                key="fab_generate_btn",
-                use_container_width=True,
-                disabled=is_gen
-            )
-        if clicked and not is_gen:
+        is_generate = st.session_state.page == t("nav_gen")
+        label = f"✅ {t('gen_title')}" if is_generate else f"🚀 {t('gen_title')}"
+        st.markdown('<div class="fab-wrap">', unsafe_allow_html=True)
+        clicked = st.button(
+            label,
+            key="fab_generate",
+            use_container_width=True,
+            disabled=is_generate
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+        if clicked and not is_generate:
             st.session_state.page = t("nav_gen")
             st.rerun()
 
@@ -895,4 +2100,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

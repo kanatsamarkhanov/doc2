@@ -530,6 +530,39 @@ button[kind="secondary"],
     color: {fg} !important;
     border: 1px solid {brd} !important;
 }}
+/* ══ FILE UPLOADER ═══════════════════════════════════════════════ */
+[data-testid="stFileUploader"] section {
+    background: {cbg} !important;
+    border: 1.5px dashed {acc} !important;
+    border-radius: 12px !important;
+    padding: 14px !important;
+}
+
+[data-testid="stFileUploader"] div,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] label {
+    color: {fg} !important;
+}
+
+[data-testid="stFileUploader"] button {
+    background: linear-gradient(135deg, {acc2}, {acc}) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    padding: 0.45rem 0.9rem !important;
+}
+
+[data-testid="stFileUploader"] button:hover {
+    background: linear-gradient(135deg, {acc}, {acc2}) !important;
+    box-shadow: 0 4px 16px rgba(59,130,246,.35) !important;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    background: {cbg} !important;
+    border: 1.5px dashed {brd} !important;
+}
 
 /* ══ TABS ════════════════════════════════════════════════════════ */
 [data-baseweb="tab-list"] {{

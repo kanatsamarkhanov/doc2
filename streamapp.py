@@ -1695,14 +1695,15 @@ def sync_logs_to_github():
 
 
 def sync_feedback_to_github(uname: str, text: str):
-    """Append feedback entry to data/feedback.json on GitHub."""
     token, repo = _gh_cfg()
     if not token or not repo:
         return
-    url     = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
-    headers = {"Authorization": f"token {token}",
-               "Accept": "application/vnd.github+json"}
-    # Load existing
+    url = f"https://api.github.com/repos/{repo}/contents/data/feedback.json"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json"
+    }
+
     existing = []
     sha = None
     r = requests.get(url, headers=headers, timeout=8)
@@ -1712,14 +1713,21 @@ def sync_feedback_to_github(uname: str, text: str):
             existing = json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
         except Exception:
             existing = []
-    existing.append({"user": uname, "text": text,
-                     "ts": datetime.now().isoformat()})
+
+    existing.append({
+        "user": uname,
+        "text": text,
+        "ts": datetime.now().isoformat()
+    })
+
     encoded = base64.b64encode(
         json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8")
     ).decode("utf-8")
-    payload: dict = {"message": f"feedback from {uname}", "content": encoded}
+
+    payload = {"message": f"feedback from {uname}", "content": encoded}
     if sha:
         payload["sha"] = sha
+
     requests.put(url, headers=headers, json=payload, timeout=10)
         
 # ════════════════════════════════════════════════════════════════════════════
@@ -1838,6 +1846,7 @@ def sync_feedback_to_github(uname: str, text: str):
         for i, (k, lbl) in enumerate(zip(keys, labels), 1):
             if st.session_state.get(k, ""):
                 md_lines += [f"## {i}. {lbl}", st.session_state[k], ""]
+
         if st.session_state.formulas:
             md_lines.append("## Formulas\n")
             for frm in st.session_state.formulas:
@@ -1845,6 +1854,7 @@ def sync_feedback_to_github(uname: str, text: str):
                 if frm.get("desc"):
                     md_lines.append(f"*{frm['desc']}*")
                 md_lines.append("")
+
         if st.session_state.refs:
             md_lines.append("## References\n")
             cs = st.session_state.cite_style
@@ -1861,8 +1871,8 @@ def sync_feedback_to_github(uname: str, text: str):
 
     with e3:
         proj = {k: st.session_state.get(k, "") for k in [
-            "art_title","authors","affiliation","journal","keywords","abstract",
-            "intro","methods","results","discussion","conclusion","cite_style"
+            "art_title", "authors", "affiliation", "journal", "keywords", "abstract",
+            "intro", "methods", "results", "discussion", "conclusion", "cite_style"
         ]}
         proj["refs"] = st.session_state.refs
         proj["formulas"] = st.session_state.formulas
@@ -2050,8 +2060,18 @@ def pg_settings():
 # ════════════════════════════════════════════════════════════════════════════
 def fab():
     wf = workflow_pages()
-    if st.session_state.page in wf and st.session_state.page != t("nav_gen"):
-        if st.button(f"🚀 {t('gen_title')}", key="fab_generate", use_container_width=False):
+    if st.session_state.page in wf:
+        is_generate = st.session_state.page == t("nav_gen")
+        label = f"✅ {t('gen_title')}" if is_generate else f"🚀 {t('gen_title')}"
+        st.markdown('<div class="fab-wrap">', unsafe_allow_html=True)
+        clicked = st.button(
+            label,
+            key="fab_generate",
+            use_container_width=True,
+            disabled=is_generate
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+        if clicked and not is_generate:
             st.session_state.page = t("nav_gen")
             st.rerun()
 

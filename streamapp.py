@@ -1813,9 +1813,13 @@ def sync_feedback_to_github(uname: str, text: str):
         if DOCX_OK:
             with st.spinner(t("downloading")):
                 buf = build_docx()
-            st.download_button(t("dl_docx"), buf, f"{fn}.docx",
+            st.download_button(
+                t("dl_docx"),
+                buf,
+                f"{fn}.docx",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True)
+                use_container_width=True
+            )
             st.success(t("success_gen"))
         else:
             st.error("pip install python-docx")
@@ -1824,45 +1828,54 @@ def sync_feedback_to_github(uname: str, text: str):
         md_lines = [
             f"# {st.session_state.art_title}",
             f"**{st.session_state.authors}**",
-            f"*{st.session_state.affiliation}*", "",
-            f"**Keywords:** {st.session_state.keywords}", "",
-            f"## Abstract\n\n{st.session_state.abstract}", "",
+            f"*{st.session_state.affiliation}*",
+            "",
+            f"**Keywords:** {st.session_state.keywords}",
+            "",
+            f"## Abstract\n\n{st.session_state.abstract}",
+            "",
         ]
-        for i,(k,lbl) in enumerate(zip(keys,labels),1):
-            if st.session_state.get(k,""):
+        for i, (k, lbl) in enumerate(zip(keys, labels), 1):
+            if st.session_state.get(k, ""):
                 md_lines += [f"## {i}. {lbl}", st.session_state[k], ""]
         if st.session_state.formulas:
             md_lines.append("## Formulas\n")
             for frm in st.session_state.formulas:
                 md_lines.append(f"$$({frm['number']}) \\quad {frm['latex']}$$")
-                if frm.get("desc"): md_lines.append(f"*{frm['desc']}*")
+                if frm.get("desc"):
+                    md_lines.append(f"*{frm['desc']}*")
                 md_lines.append("")
         if st.session_state.refs:
             md_lines.append("## References\n")
             cs = st.session_state.cite_style
-            for j,ref in enumerate(st.session_state.refs,1):
-                md_lines.append(fmt_ref(ref,cs,j))
-        st.download_button(t("dl_md"),
-                           "\n".join(md_lines).encode("utf-8"),
-                           f"{fn}.md", "text/markdown",
-                           use_container_width=True)
+            for j, ref in enumerate(st.session_state.refs, 1):
+                md_lines.append(fmt_ref(ref, cs, j))
+
+        st.download_button(
+            t("dl_md"),
+            "\n".join(md_lines).encode("utf-8"),
+            f"{fn}.md",
+            "text/markdown",
+            use_container_width=True
+        )
 
     with e3:
-        with st.expander("ℹ️ " + ("What is Save / Load JSON?" if "English" in st.session_state.lang
-                                   else "Что такое Сохранить / Загрузить JSON?"), expanded=False):
-            st.info(t("load_json_help"))
-
-        proj = {k: st.session_state.get(k,"") for k in
-                ["art_title","authors","affiliation","journal","keywords","abstract",
-                 "intro","methods","results","discussion","conclusion","cite_style"]}
-        proj["refs"]     = st.session_state.refs
+        proj = {k: st.session_state.get(k, "") for k in [
+            "art_title","authors","affiliation","journal","keywords","abstract",
+            "intro","methods","results","discussion","conclusion","cite_style"
+        ]}
+        proj["refs"] = st.session_state.refs
         proj["formulas"] = st.session_state.formulas
-        proj["tables"]   = st.session_state.tables
+        proj["tables"] = st.session_state.tables
         proj["exported_at"] = datetime.now().isoformat()
-        st.download_button(t("save_json"),
-                           json.dumps(proj, ensure_ascii=False, indent=2).encode("utf-8"),
-                           f"{fn}_project.json", "application/json",
-                           use_container_width=True)
+
+        st.download_button(
+            t("save_json"),
+            json.dumps(proj, ensure_ascii=False, indent=2).encode("utf-8"),
+            f"{fn}_project.json",
+            "application/json",
+            use_container_width=True
+        )
 
 # ════════════════════════════════════════════════════════════════════════════
 # PAGE: SETTINGS
@@ -2038,8 +2051,9 @@ def pg_settings():
 def fab():
     wf = workflow_pages()
     if st.session_state.page in wf and st.session_state.page != t("nav_gen"):
-        st.markdown(f'<div class="fab">🚀 {t("gen_title")}</div>',
-                    unsafe_allow_html=True)
+        if st.button(f"🚀 {t('gen_title')}", key="fab_generate", use_container_width=False):
+            st.session_state.page = t("nav_gen")
+            st.rerun()
 
 # ════════════════════════════════════════════════════════════════════════════
 # MAIN

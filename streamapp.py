@@ -348,7 +348,21 @@ TR = {
 ),
 }
 
-t("register")])
+def auth_page():
+    inject_css(dark=True)
+    _, mid, _ = st.columns([1, 1.15, 1])
+    with mid:
+        mode = st.session_state.auth_mode
+
+        st.markdown(f"""<div class="lc">
+<div style="text-align:center;margin-bottom:22px;">
+  <div style="font-size:2.8rem;">📝</div>
+  <h2 style="margin:6px 0 2px;font-weight:900;color:#3b82f6;">Smart Article</h2>
+  <p style="color:#94a3b8;margin:0;font-size:0.86rem;">Research Writing Platform</p>
+</div></div>""", unsafe_allow_html=True)
+
+        # ── TAB toggle ──
+        tab_login, tab_reg = st.tabs([t("sign_in"), t("register")])
 
         # ── LOGIN ──
         with tab_login:
@@ -368,7 +382,8 @@ t("register")])
             st.markdown(
                 f'<p style="text-align:center;color:#64748b;font-size:0.78rem;">'
                 f'Demo: <b style="color:#94a3b8;">admin</b> / <b style="color:#94a3b8;">admin123</b></p>',
-                unsafe_allow_html=True)
+                unsafe_allow_html=True
+            )
 
         # ── REGISTER ──
         with tab_reg:
@@ -388,8 +403,7 @@ t("register")])
                     if ok2:
                         st.success(t("reg_ok"))
                     else:
-                        msg = t(code) if code in ("username_taken","email_taken",
-                                                   "pw_short","uname_short") else code
+                        msg = t(code) if code in ("username_taken", "email_taken", "pw_short", "uname_short") else code
                         st.error(f"❌ {msg}")
 
 # ════════════════════════════════════════════════════════════════════════════

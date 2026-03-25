@@ -971,7 +971,6 @@ def login_prompt_button(key_suffix: str):
 ALL_PAGES = [
     ("info",    "📄", "nav_info"),
     ("sections","✍️","nav_sec"),
-    ("media",   "🖼️","nav_media"),
     ("refs",    "📑","nav_refs"),
     ("generate","🚀","nav_gen"),
     ("thesis",  "🎓","nav_thesis"),
@@ -987,10 +986,10 @@ def _nav_stat(key: str) -> str:
     if key == "sections":
         done = sum(1 for k in active_sections() if st.session_state.get(k,"").strip())
         tot  = len(active_sections())
-        return f" ({done}/{tot})"
-    if key == "media":
-        n = len(st.session_state.figures) + len(st.session_state.tables) + len(st.session_state.formulas)
-        return f" ({n})" if n else ""
+        # also count media objects
+        n_media = len(st.session_state.figures) + len(st.session_state.tables) + len(st.session_state.formulas)
+        media_str = f" 🖼️{n_media}" if n_media else ""
+        return f" ({done}/{tot}{media_str})"
     if key == "refs":
         n = len(st.session_state.refs)
         return f" ({n})" if n else ""
@@ -1603,6 +1602,7 @@ def pg_info():
 #  PAGE: SECTIONS
 # ═══════════════════════════════════════════════════════════════════════════
 def pg_sections():
+    lk  = _lang_key()
     st.markdown(f"## ✍️ {t('nav_sec')}")
     guest_banner(); inline_nav(); st.write("")
     dis  = not is_logged_in()
@@ -1611,18 +1611,46 @@ def pg_sections():
     if "_active_sec" not in st.session_state or st.session_state._active_sec not in secs:
         st.session_state._active_sec = secs[0]
 
+    # ── How-to banner ─────────────────────────────────────────────
+    if is_logged_in():
+        c_ = _colors()
+        fig_ex  = {"kz":"Сурет 1",  "ru":"Рисунок 1", "en":"Figure 1"}[lk]
+        tbl_ex  = {"kz":"Кесте 1",  "ru":"Таблица 1", "en":"Table 1"}[lk]
+        frm_ex  = "(1)"
+        ref_ex  = "[1]"
+        how_lbl = {"kz":"💡 Пайдалану нұсқаулығы",
+                   "ru":"💡 Как использовать",
+                   "en":"💡 How to use"}[lk]
+        how_txt = {
+            "kz": (f"1. Мәтін жазыңыз. 2. Суретті/кестені/формуланы қосыңыз (⊕ батырмасы). "
+                   f"3. Мәтінге ↩ батырмасымен сілтеме кірістіріңіз — "
+                   f"<b>{fig_ex}</b>, <b>{tbl_ex}</b>, <b>{frm_ex}</b>. "
+                   f"4. Экспортта объекттер сілтеме жанына автоматты орналасады."),
+            "ru": (f"1. Пишите текст. 2. Добавьте рисунок/таблицу/формулу (кнопка ⊕). "
+                   f"3. Вставьте ссылку кнопкой ↩ — "
+                   f"<b>{fig_ex}</b>, <b>{tbl_ex}</b>, <b>{frm_ex}</b>. "
+                   f"4. При экспорте объекты автоматически размещаются рядом со ссылкой."),
+            "en": (f"1. Write your text. 2. Add figures/tables/formulas (⊕ button). "
+                   f"3. Insert a reference with ↩ — "
+                   f"<b>{fig_ex}</b>, <b>{tbl_ex}</b>, <b>{frm_ex}</b>. "
+                   f"4. On export, objects are placed automatically next to their citation."),
+        }[lk]
+        st.markdown(
+            f'<div class="hint-box" style="margin-bottom:10px;">'
+            f'<div class="hint-lbl">{how_lbl}</div>{how_txt}</div>',
+            unsafe_allow_html=True)
+
     tab_labels = [f"{ALL_SECTIONS.get(k,{}).get('icon','•')} {sec_name(k)}" for k in secs]
     tabs       = st.tabs(tab_labels)
 
     for tab, key in zip(tabs, secs):
         with tab:
             st.session_state._active_sec = key
-            st.markdown(f'<div class="sec-hd">{ALL_SECTIONS.get(key,{}).get("icon","•")} {sec_name(key)}</div>',
-                        unsafe_allow_html=True)
-            L, R = st.columns([3,2], gap="large")
+            L, R = st.columns([3, 2], gap="large")
 
+            # ── LEFT: text editor + media panels ──────────────────
             with L:
-                # Upload helper
+                # File import
                 up = st.file_uploader(f"TXT/DOCX", type=["docx","txt"],
                                       key=f"up_{key}", disabled=dis,
                                       label_visibility="collapsed")
@@ -1635,165 +1663,240 @@ def pg_sections():
                             st.session_state[key] = "\n".join(p.text for p in doc.paragraphs)
                         except: pass
 
-                # Insert buttons
-                insert_buttons(key)
+                # ── Inline media add panel ─────────────────────────
+                if is_logged_in():
+                    _media_panel_inline(key, lk, dis)
 
+                # ── Text area ──────────────────────────────────────
                 val = st.text_area(
                     sec_name(key), value=st.session_state.get(key,""),
-                    height=340, key=f"ta_{key}", disabled=dis,
+                    height=300, key=f"ta_{key}", disabled=dis,
                     label_visibility="collapsed",
                     placeholder=f"{sec_name(key)}…")
                 if not dis: st.session_state[key] = val
                 st.caption(f"📝 {t('word_count')}: {wc(st.session_state.get(key,''))}")
                 if dis: login_prompt_button(f"sec_{key}")
 
-                # Objectives checker in intro — live, reads current textarea value
                 if key == "intro" and is_logged_in():
                     st.markdown("---")
                     objectives_checker(intro_override=st.session_state.get("intro",""))
 
+            # ── RIGHT: AI hint + preview ───────────────────────────
             with R:
                 ai_hint_panel(key)
                 st.markdown(f"**{t('preview_lbl')}**")
-                c  = st.session_state.get(key,"")
-                c_ = _colors()
-                st.markdown(
-                    f'<div class="pv" style="padding:12px;font-size:0.86rem;">'
-                    f'<div class="ph">{sec_name(key)}</div>'
-                    f'{"<p style=margin-top:8px;>"+c[:500]+( chr(8230) if len(c)>500 else "")+"</p>" if c else "<p style=color:"+c_["muted"]+";font-style:italic;>Empty…</p>"}'
-                    f'</div>', unsafe_allow_html=True)
+                _preview_section(key, lk)
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  PAGE: MEDIA
-# ═══════════════════════════════════════════════════════════════════════════
-def pg_media():
-    st.markdown(f"## 🖼️ {t('nav_media')}")
-    guest_banner(); inline_nav(); st.write("")
-    dis = not is_logged_in()
-    tab_fig, tab_tbl, tab_frm = st.tabs(
-        [f"🖼️ {t('w_figs')}", f"📊 {t('w_tbls')}", f"🧮 {t('w_forms')}"])
 
-    # ── FIGURES ───────────────────────────────────────────────────
-    with tab_fig:
-        L, R = st.columns(2, gap="large")
-        with L:
-            st.markdown(f'<div class="sec-hd">➕ {t("add_fig")}</div>', unsafe_allow_html=True)
-            ai_hint_panel("")  # generic hint
-            with st.form("ff", clear_on_submit=True):
-                fn  = st.text_input(f"№", placeholder="1", disabled=dis)
-                fc  = st.text_input(t("caption_lbl"),
-                                    placeholder=f"Figure 1. Map of study area", disabled=dis)
-                fup = st.file_uploader(t("upload_img"),
-                                       type=["png","jpg","jpeg","tif","svg"], disabled=dis)
-                if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
-                                         disabled=dis) and fc:
-                    st.session_state.figures.append({
-                        "number": fn or str(len(st.session_state.figures)+1),
-                        "caption": fc,
-                        "image": fup.read() if fup else None,
-                        "name": fup.name if fup else None,
-                    })
-                    st.success("✅"); st.rerun()
-            if dis: login_prompt_button("fig")
+def _media_panel_inline(sec_key: str, lk: str, dis: bool):
+    """
+    Compact inline panel for adding figures/tables/formulas and inserting
+    citation markers into the section text. Replaces the old Медиа page.
+    """
+    c_ = _colors()
+    figs  = st.session_state.figures
+    tbls  = st.session_state.tables
+    forms = st.session_state.formulas
 
-        with R:
-            st.markdown(f'<div class="sec-hd">📋 {t("w_figs")} ({len(st.session_state.figures)})</div>',
-                        unsafe_allow_html=True)
-            if not st.session_state.figures:
-                st.info(t("no_figs"))
+    # ── Insert buttons (existing objects) ─────────────────────────
+    if figs or tbls or forms:
+        ins_lbl = {"kz":"↩ Кірістіру:","ru":"↩ Вставить:","en":"↩ Insert:"}[lk]
+        st.markdown(f'<div class="ins-row"><span class="ins-lbl">{ins_lbl}</span></div>',
+                    unsafe_allow_html=True)
+        all_items = (
+            [(f"🖼️ {t('fig_lbl')} {f['number']}", f"fig", f) for f in figs] +
+            [(f"📊 {t('tbl_lbl')} {b['number']}", f"tbl", b) for b in tbls] +
+            [(f"🧮 {t('form_lbl')} {frm['number']}", f"frm", frm) for frm in forms]
+        )
+        cols = st.columns(min(len(all_items), 6))
+        for i, (label, kind, obj) in enumerate(all_items):
+            if i >= len(cols): break
+            if cols[i].button(label, key=f"ins_{kind}_{sec_key}_{obj['number']}",
+                               use_container_width=True):
+                cur = st.session_state.get(sec_key, "")
+                fig_word = {"kz":"Сурет","ru":"Рисунок","en":"Figure"}[lk]
+                tbl_word = {"kz":"Кесте","ru":"Таблица","en":"Table"}[lk]
+                if kind == "fig":
+                    marker = f" {fig_word} {obj['number']}"
+                elif kind == "tbl":
+                    marker = f" {tbl_word} {obj['number']}"
+                else:
+                    marker = f" ({obj['number']})"
+                st.session_state[sec_key] = cur + marker
+                st.rerun()
+
+    # ── Add new object expanders ───────────────────────────────────
+    add_fig_lbl  = {"kz":"⊕ Сурет қосу","ru":"⊕ Добавить рисунок","en":"⊕ Add Figure"}[lk]
+    add_tbl_lbl  = {"kz":"⊕ Кесте қосу","ru":"⊕ Добавить таблицу","en":"⊕ Add Table"}[lk]
+    add_frm_lbl  = {"kz":"⊕ Формула қосу","ru":"⊕ Добавить формулу","en":"⊕ Add Formula"}[lk]
+
+    exp_col1, exp_col2, exp_col3 = st.columns(3)
+
+    # ── FIGURE ────────────────────────────────────────────────────
+    with exp_col1.expander(add_fig_lbl):
+        with st.form(f"ff_{sec_key}", clear_on_submit=True):
+            fn = st.text_input("№", value=str(len(figs)+1), disabled=dis)
+            fc = st.text_input({"kz":"Аңыз","ru":"Подпись","en":"Caption"}[lk],
+                                placeholder={"kz":"Сурет 1. Зерттеу аймағы",
+                                             "ru":"Рисунок 1. Карта исследования",
+                                             "en":"Figure 1. Study area map"}[lk],
+                                disabled=dis)
+            fup = st.file_uploader({"kz":"Сурет (PNG/JPG)","ru":"Рисунок (PNG/JPG)","en":"Image (PNG/JPG)"}[lk],
+                                   type=["png","jpg","jpeg","tif","svg"], disabled=dis)
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
+                                      disabled=dis) and fc:
+                num = fn or str(len(figs)+1)
+                st.session_state.figures.append({
+                    "number": num, "caption": fc,
+                    "image": fup.read() if fup else None,
+                    "name": fup.name if fup else None,
+                })
+                # Auto-insert citation marker
+                cur = st.session_state.get(sec_key, "")
+                fig_word = {"kz":"Сурет","ru":"Рисунок","en":"Figure"}[lk]
+                st.session_state[sec_key] = cur + f" {fig_word} {num}"
+                st.success(f"✅"); st.rerun()
+        # List existing figures with delete
+        if figs:
+            for i, fig in enumerate(figs):
+                st.caption(f"🖼️ {t('fig_lbl')} {fig['number']}: {fig['caption'][:40]}")
+                if st.button("🗑️", key=f"delf_{sec_key}_{i}"):
+                    st.session_state.figures.pop(i); st.rerun()
+
+    # ── TABLE ─────────────────────────────────────────────────────
+    with exp_col2.expander(add_tbl_lbl):
+        with st.form(f"tf_{sec_key}", clear_on_submit=True):
+            tn = st.text_input("№", value=str(len(tbls)+1), disabled=dis)
+            tc = st.text_input({"kz":"Аңыз","ru":"Заголовок","en":"Caption"}[lk],
+                                placeholder={"kz":"Кесте 1. Деректер қорытындысы",
+                                             "ru":"Таблица 1. Сводка данных",
+                                             "en":"Table 1. Summary statistics"}[lk],
+                                disabled=dis)
+            td = st.text_area({"kz":"CSV деректер","ru":"Данные CSV","en":"CSV data"}[lk],
+                               height=80,
+                               placeholder="Col1,Col2,Col3\nVal1,Val2,Val3",
+                               disabled=dis)
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
+                                      disabled=dis) and tc:
+                num = tn or str(len(tbls)+1)
+                st.session_state.tables.append({"number": num, "caption": tc, "data": td})
+                tbl_word = {"kz":"Кесте","ru":"Таблица","en":"Table"}[lk]
+                cur = st.session_state.get(sec_key, "")
+                st.session_state[sec_key] = cur + f" {tbl_word} {num}"
+                st.success("✅"); st.rerun()
+        if tbls:
+            for i, tbl in enumerate(tbls):
+                st.caption(f"📊 {t('tbl_lbl')} {tbl['number']}: {tbl['caption'][:40]}")
+                if tbl.get("data") and PD_OK:
+                    try:
+                        st.dataframe(pd.read_csv(io.StringIO(tbl["data"])),
+                                     use_container_width=True, hide_index=True)
+                    except: pass
+                if st.button("🗑️", key=f"delt_{sec_key}_{i}"):
+                    st.session_state.tables.pop(i); st.rerun()
+
+    # ── FORMULA ───────────────────────────────────────────────────
+    with exp_col3.expander(add_frm_lbl):
+        test_ltx = st.text_input("LaTeX preview",
+                                  placeholder=r"Q=\frac{1}{n}AR^{2/3}S^{1/2}",
+                                  key=f"ltxprev_{sec_key}")
+        if test_ltx:
+            try: st.latex(test_ltx)
+            except: st.code(test_ltx)
+        with st.form(f"formf_{sec_key}", clear_on_submit=True):
+            fnum   = st.text_input("№", value=str(len(forms)+1), disabled=dis)
+            flatex = st.text_input("LaTeX",
+                                    placeholder=r"Q = \frac{1}{n} A R^{2/3} S^{1/2}",
+                                    disabled=dis)
+            fdesc  = st.text_input({"kz":"Сипаттама","ru":"Описание","en":"Description"}[lk],
+                                    placeholder={"kz":"Мэннинг формуласы",
+                                                 "ru":"Уравнение Мэннинга",
+                                                 "en":"Manning's equation"}[lk],
+                                    disabled=dis)
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
+                                      disabled=dis) and flatex:
+                num = fnum or str(len(forms)+1)
+                st.session_state.formulas.append({"number": num, "latex": flatex, "desc": fdesc})
+                cur = st.session_state.get(sec_key, "")
+                st.session_state[sec_key] = cur + f" ({num})"
+                st.success("✅"); st.rerun()
+        if forms:
+            for i, frm in enumerate(forms):
+                try: st.latex(frm["latex"])
+                except: st.code(frm["latex"])
+                st.caption(f"({frm['number']}) {frm.get('desc','')[:40]}")
+                if st.button("🗑️", key=f"delfm_{sec_key}_{i}"):
+                    st.session_state.formulas.pop(i); st.rerun()
+
+
+def _preview_section(key: str, lk: str):
+    """Render section preview with embedded media thumbnails."""
+    c_  = _colors()
+    txt = st.session_state.get(key, "")
+    figs_map  = {str(f["number"]): f for f in st.session_state.figures}
+    tbls_map  = {str(t_["number"]): t_ for t_ in st.session_state.tables}
+    forms_map = {str(f["number"]): f for f in st.session_state.formulas}
+    fw = {"kz":["Сурет","сурет"],"ru":["Рисунок","рисунок"],"en":["Figure","figure"]}[lk]
+    tw = {"kz":["Кесте","кесте"],"ru":["Таблица","таблица"],"en":["Table","table"]}[lk]
+
+    if not txt:
+        st.markdown(
+            f'<div class="pv" style="padding:12px;font-size:0.86rem;">'
+            f'<div class="ph">{sec_name(key)}</div>'
+            f'<p style="color:{c_["muted"]};font-style:italic;">Empty…</p>'
+            f'</div>', unsafe_allow_html=True)
+        return
+
+    # Render text preview
+    preview_txt = txt[:600] + (chr(8230) if len(txt) > 600 else "")
+    st.markdown(
+        f'<div class="pv" style="padding:12px;font-size:0.86rem;">'
+        f'<div class="ph">{sec_name(key)}</div>'
+        f'<p style="margin-top:8px;">{preview_txt}</p>'
+        f'</div>', unsafe_allow_html=True)
+
+    # Show thumbnails of cited objects
+    cited_figs  = set()
+    cited_tbls  = set()
+    cited_forms = set()
+    for w in fw:
+        for m in re.finditer(rf'\b{re.escape(w)}\s+(\d+)\b', txt):
+            cited_figs.add(m.group(1))
+    for w in tw:
+        for m in re.finditer(rf'\b{re.escape(w)}\s+(\d+)\b', txt):
+            cited_tbls.add(m.group(1))
+    for m in re.finditer(r'\((\d+)\)', txt):
+        cited_forms.add(m.group(1))
+
+    if cited_figs or cited_tbls or cited_forms:
+        st.markdown(f'<div class="hint-lbl" style="margin-top:8px;">📎 '
+                    + {"kz":"Кірістірілген нысандар","ru":"Вложенные объекты","en":"Cited objects"}[lk]
+                    + '</div>', unsafe_allow_html=True)
+    for n in sorted(cited_figs):
+        fig = figs_map.get(n)
+        if fig:
+            if fig.get("image"):
+                st.image(fig["image"], caption=f'{fw[0]} {n}. {fig["caption"][:60]}',
+                         use_container_width=True)
             else:
-                for i, fig in enumerate(st.session_state.figures):
-                    with st.expander(f"🖼️ {t('fig_lbl')} {fig['number']} — {fig['caption'][:50]}"):
-                        if fig.get("image"): st.image(fig["image"], use_container_width=True)
-                        st.caption(fig.get("name","—"))
-                        if not dis and st.button(f"🗑️ {t('del_btn')}", key=f"df{i}"):
-                            st.session_state.figures.pop(i); st.rerun()
+                st.caption(f'🖼️ {fw[0]} {n}: {fig["caption"][:60]}')
+    for n in sorted(cited_tbls):
+        tbl = tbls_map.get(n)
+        if tbl:
+            st.caption(f'📊 {tw[0]} {n}: {tbl["caption"][:60]}')
+            if tbl.get("data") and PD_OK:
+                try:
+                    st.dataframe(pd.read_csv(io.StringIO(tbl["data"])),
+                                 use_container_width=True, hide_index=True)
+                except: pass
+    for n in sorted(cited_forms):
+        frm = forms_map.get(n)
+        if frm:
+            try: st.latex(frm["latex"])
+            except: st.code(frm["latex"])
+            st.caption(f'({n}) {frm.get("desc","")}')
 
-    # ── TABLES ────────────────────────────────────────────────────
-    with tab_tbl:
-        L, R = st.columns(2, gap="large")
-        with L:
-            st.markdown(f'<div class="sec-hd">➕ {t("add_tbl")}</div>', unsafe_allow_html=True)
-            with st.form("tf", clear_on_submit=True):
-                tn = st.text_input("№", placeholder="1", disabled=dis)
-                tc = st.text_input(t("caption_lbl"),
-                                   placeholder="Table 1. Summary statistics", disabled=dis)
-                td = st.text_area(t("csv_data"), height=110,
-                                  placeholder="Col1,Col2,Col3\nVal1,Val2,Val3", disabled=dis)
-                if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
-                                         disabled=dis) and tc:
-                    st.session_state.tables.append({
-                        "number": tn or str(len(st.session_state.tables)+1),
-                        "caption": tc, "data": td,
-                    })
-                    st.success("✅"); st.rerun()
-            if dis: login_prompt_button("tbl")
 
-        with R:
-            st.markdown(f'<div class="sec-hd">📋 {t("w_tbls")} ({len(st.session_state.tables)})</div>',
-                        unsafe_allow_html=True)
-            if not st.session_state.tables:
-                st.info(t("no_tbls"))
-            else:
-                for i, tbl in enumerate(st.session_state.tables):
-                    with st.expander(f"📊 {t('tbl_lbl')} {tbl['number']} — {tbl['caption'][:50]}"):
-                        if tbl.get("data") and PD_OK:
-                            try:
-                                df = pd.read_csv(io.StringIO(tbl["data"]))
-                                st.dataframe(df, use_container_width=True)
-                            except: st.text(tbl["data"])
-                        if not dis and st.button(f"🗑️ {t('del_btn')}", key=f"dt{i}"):
-                            st.session_state.tables.pop(i); st.rerun()
-
-    # ── FORMULAS ──────────────────────────────────────────────────
-    with tab_frm:
-        L, R = st.columns(2, gap="large")
-        with L:
-            st.markdown(f'<div class="sec-hd">➕ {t("add_form")}</div>', unsafe_allow_html=True)
-            with st.form("formf", clear_on_submit=True):
-                fnum   = st.text_input("№", placeholder="1", disabled=dis)
-                flatex = st.text_input(t("latex_lbl"),
-                                       placeholder=r"Q = \frac{1}{n} A R^{2/3} S^{1/2}",
-                                       disabled=dis)
-                fdesc  = st.text_area(t("desc_lbl"), height=60, disabled=dis,
-                                      placeholder="Manning's equation")
-                if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
-                                         disabled=dis) and flatex:
-                    st.session_state.formulas.append({
-                        "number": fnum or str(len(st.session_state.formulas)+1),
-                        "latex": flatex, "desc": fdesc,
-                    })
-                    st.success("✅"); st.rerun()
-            if dis: login_prompt_button("form")
-            st.markdown("---")
-            st.markdown("**LaTeX Quick Ref**")
-            if PD_OK:
-                st.dataframe(pd.DataFrame({
-                    "Description":["Fraction","Sqrt","Sub/Super","Integral","Sum","Greek"],
-                    "LaTeX":[r"\frac{a}{b}",r"\sqrt{x}",r"x_{i}^{2}",
-                              r"\int_{a}^{b}f(x)dx",r"\sum_{i=1}^{n}x_i",r"\alpha,\beta,\Delta"],
-                }), use_container_width=True, hide_index=True)
-
-        with R:
-            st.markdown("**Live Preview**")
-            test_l = st.text_input("LaTeX", placeholder=r"E = mc^2", key="ltx_test")
-            if test_l:
-                try: st.latex(test_l)
-                except Exception as e: st.error(str(e))
-            st.markdown("---")
-            st.markdown(f'<div class="sec-hd">📋 {t("w_forms")} ({len(st.session_state.formulas)})</div>',
-                        unsafe_allow_html=True)
-            if not st.session_state.formulas:
-                st.info(t("no_forms"))
-            else:
-                for i, frm in enumerate(st.session_state.formulas):
-                    lbl = frm["desc"][:40] if frm["desc"] else frm["latex"][:30]
-                    with st.expander(f"🧮 ({frm['number']}) {lbl}"):
-                        try: st.latex(frm["latex"])
-                        except: st.code(frm["latex"])
-                        if frm.get("desc"): st.caption(frm["desc"])
-                        if not dis and st.button(f"🗑️ {t('del_btn')}", key=f"dfm{i}"):
-                            st.session_state.formulas.pop(i); st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  BIBTEX + CITATION FORMATTERS
@@ -2838,7 +2941,6 @@ def main():
     routes={
         "info":     pg_info,
         "sections": pg_sections,
-        "media":    pg_media,
         "refs":     pg_refs,
         "generate": pg_generate,
         "thesis":   pg_thesis,

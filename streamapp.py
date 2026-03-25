@@ -971,7 +971,6 @@ def login_prompt_button(key_suffix: str):
 ALL_PAGES = [
     ("info",    "📄", "nav_info"),
     ("sections","✍️","nav_sec"),
-    ("refs",    "📑","nav_refs"),
     ("generate","🚀","nav_gen"),
     ("thesis",  "🎓","nav_thesis"),
     ("agent",   "🤖","nav_agent"),
@@ -979,20 +978,18 @@ ALL_PAGES = [
 ]
 
 def _nav_stat(key: str) -> str:
-    """Return compact stat string shown in nav button brackets."""
     if key == "info":
         w = wc(st.session_state.get("abstract","") + " " + st.session_state.get("art_title",""))
         return f" ({w})" if w else ""
     if key == "sections":
-        done = sum(1 for k in active_sections() if st.session_state.get(k,"").strip())
-        tot  = len(active_sections())
-        # also count media objects
+        done    = sum(1 for k in active_sections() if st.session_state.get(k,"").strip())
+        tot     = len(active_sections())
         n_media = len(st.session_state.figures) + len(st.session_state.tables) + len(st.session_state.formulas)
-        media_str = f" 🖼️{n_media}" if n_media else ""
-        return f" ({done}/{tot}{media_str})"
-    if key == "refs":
-        n = len(st.session_state.refs)
-        return f" ({n})" if n else ""
+        n_refs  = len(st.session_state.refs)
+        extras  = ""
+        if n_media: extras += f" 🖼️{n_media}"
+        if n_refs:  extras += f" 📑{n_refs}"
+        return f" ({done}/{tot}{extras})"
     if key == "generate":
         score, _ = article_readiness()
         return f" ({score}%)"
@@ -1641,9 +1638,13 @@ def pg_sections():
             unsafe_allow_html=True)
 
     tab_labels = [f"{ALL_SECTIONS.get(k,{}).get('icon','•')} {sec_name(k)}" for k in secs]
-    tabs       = st.tabs(tab_labels)
+    # Refs tab always appended last
+    refs_lbl = f"📑 {t('nav_refs')} ({len(st.session_state.refs)})"
+    tab_labels.append(refs_lbl)
+    tabs = st.tabs(tab_labels)
 
-    for tab, key in zip(tabs, secs):
+    # ── Section tabs ─────────────────────────────────────────────
+    for tab, key in zip(tabs[:-1], secs):
         with tab:
             st.session_state._active_sec = key
             L, R = st.columns([3, 2], gap="large")
@@ -1691,7 +1692,7 @@ def pg_sections():
 def _media_panel_inline(sec_key: str, lk: str, dis: bool):
     """
     Compact inline panel for adding figures/tables/formulas and inserting
-    citation markers into the section text. Replaces the old Медиа page.
+    citation markers into the section text.
     """
     c_ = _colors()
     figs  = st.session_state.figures
@@ -1704,9 +1705,9 @@ def _media_panel_inline(sec_key: str, lk: str, dis: bool):
         st.markdown(f'<div class="ins-row"><span class="ins-lbl">{ins_lbl}</span></div>',
                     unsafe_allow_html=True)
         all_items = (
-            [(f"🖼️ {t('fig_lbl')} {f['number']}", f"fig", f) for f in figs] +
-            [(f"📊 {t('tbl_lbl')} {b['number']}", f"tbl", b) for b in tbls] +
-            [(f"🧮 {t('form_lbl')} {frm['number']}", f"frm", frm) for frm in forms]
+            [(f"🖼️ {t('fig_lbl')} {f['number']}", "fig", f) for f in figs] +
+            [(f"📊 {t('tbl_lbl')} {b['number']}", "tbl", b) for b in tbls] +
+            [(f"🧮 {t('form_lbl')} {frm['number']}", "frm", frm) for frm in forms]
         )
         cols = st.columns(min(len(all_items), 6))
         for i, (label, kind, obj) in enumerate(all_items):
@@ -1716,32 +1717,26 @@ def _media_panel_inline(sec_key: str, lk: str, dis: bool):
                 cur = st.session_state.get(sec_key, "")
                 fig_word = {"kz":"Сурет","ru":"Рисунок","en":"Figure"}[lk]
                 tbl_word = {"kz":"Кесте","ru":"Таблица","en":"Table"}[lk]
-                if kind == "fig":
-                    marker = f" {fig_word} {obj['number']}"
-                elif kind == "tbl":
-                    marker = f" {tbl_word} {obj['number']}"
-                else:
-                    marker = f" ({obj['number']})"
+                if kind == "fig":   marker = f" {fig_word} {obj['number']}"
+                elif kind == "tbl": marker = f" {tbl_word} {obj['number']}"
+                else:               marker = f" ({obj['number']})"
                 st.session_state[sec_key] = cur + marker
                 st.rerun()
 
     # ── Add new object expanders ───────────────────────────────────
-    add_fig_lbl  = {"kz":"⊕ Сурет қосу","ru":"⊕ Добавить рисунок","en":"⊕ Add Figure"}[lk]
-    add_tbl_lbl  = {"kz":"⊕ Кесте қосу","ru":"⊕ Добавить таблицу","en":"⊕ Add Table"}[lk]
-    add_frm_lbl  = {"kz":"⊕ Формула қосу","ru":"⊕ Добавить формулу","en":"⊕ Add Formula"}[lk]
-
+    add_fig_lbl = {"kz":"⊕ Сурет қосу","ru":"⊕ Добавить рисунок","en":"⊕ Add Figure"}[lk]
+    add_tbl_lbl = {"kz":"⊕ Кесте қосу","ru":"⊕ Добавить таблицу","en":"⊕ Add Table"}[lk]
+    add_frm_lbl = {"kz":"⊕ Формула қосу","ru":"⊕ Добавить формулу","en":"⊕ Add Formula"}[lk]
     exp_col1, exp_col2, exp_col3 = st.columns(3)
 
-    # ── FIGURE ────────────────────────────────────────────────────
     with exp_col1.expander(add_fig_lbl):
         with st.form(f"ff_{sec_key}", clear_on_submit=True):
-            fn = st.text_input("№", value=str(len(figs)+1), disabled=dis)
-            fc = st.text_input({"kz":"Аңыз","ru":"Подпись","en":"Caption"}[lk],
-                                placeholder={"kz":"Сурет 1. Зерттеу аймағы",
-                                             "ru":"Рисунок 1. Карта исследования",
-                                             "en":"Figure 1. Study area map"}[lk],
-                                disabled=dis)
-            fup = st.file_uploader({"kz":"Сурет (PNG/JPG)","ru":"Рисунок (PNG/JPG)","en":"Image (PNG/JPG)"}[lk],
+            fn  = st.text_input("№", value=str(len(figs)+1), disabled=dis)
+            fc  = st.text_input({"kz":"Аңыз","ru":"Подпись","en":"Caption"}[lk],
+                                 placeholder={"kz":"Зерттеу аймағы картасы",
+                                              "ru":"Карта исследования",
+                                              "en":"Study area map"}[lk], disabled=dis)
+            fup = st.file_uploader({"kz":"PNG/JPG","ru":"PNG/JPG","en":"PNG/JPG"}[lk],
                                    type=["png","jpg","jpeg","tif","svg"], disabled=dis)
             if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
                                       disabled=dis) and fc:
@@ -1749,33 +1744,27 @@ def _media_panel_inline(sec_key: str, lk: str, dis: bool):
                 st.session_state.figures.append({
                     "number": num, "caption": fc,
                     "image": fup.read() if fup else None,
-                    "name": fup.name if fup else None,
+                    "name":  fup.name if fup else None,
                 })
-                # Auto-insert citation marker
-                cur = st.session_state.get(sec_key, "")
                 fig_word = {"kz":"Сурет","ru":"Рисунок","en":"Figure"}[lk]
+                cur = st.session_state.get(sec_key, "")
                 st.session_state[sec_key] = cur + f" {fig_word} {num}"
-                st.success(f"✅"); st.rerun()
-        # List existing figures with delete
+                st.success("✅"); st.rerun()
         if figs:
             for i, fig in enumerate(figs):
-                st.caption(f"🖼️ {t('fig_lbl')} {fig['number']}: {fig['caption'][:40]}")
+                st.caption(f"🖼️ {fig['number']}: {fig['caption'][:40]}")
                 if st.button("🗑️", key=f"delf_{sec_key}_{i}"):
                     st.session_state.figures.pop(i); st.rerun()
 
-    # ── TABLE ─────────────────────────────────────────────────────
     with exp_col2.expander(add_tbl_lbl):
         with st.form(f"tf_{sec_key}", clear_on_submit=True):
             tn = st.text_input("№", value=str(len(tbls)+1), disabled=dis)
             tc = st.text_input({"kz":"Аңыз","ru":"Заголовок","en":"Caption"}[lk],
-                                placeholder={"kz":"Кесте 1. Деректер қорытындысы",
-                                             "ru":"Таблица 1. Сводка данных",
-                                             "en":"Table 1. Summary statistics"}[lk],
-                                disabled=dis)
-            td = st.text_area({"kz":"CSV деректер","ru":"Данные CSV","en":"CSV data"}[lk],
-                               height=80,
-                               placeholder="Col1,Col2,Col3\nVal1,Val2,Val3",
-                               disabled=dis)
+                                placeholder={"kz":"Деректер қорытындысы",
+                                             "ru":"Сводка данных",
+                                             "en":"Summary statistics"}[lk], disabled=dis)
+            td = st.text_area("CSV", height=70,
+                               placeholder="Col1,Col2\nVal1,Val2", disabled=dis)
             if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
                                       disabled=dis) and tc:
                 num = tn or str(len(tbls)+1)
@@ -1786,33 +1775,27 @@ def _media_panel_inline(sec_key: str, lk: str, dis: bool):
                 st.success("✅"); st.rerun()
         if tbls:
             for i, tbl in enumerate(tbls):
-                st.caption(f"📊 {t('tbl_lbl')} {tbl['number']}: {tbl['caption'][:40]}")
+                st.caption(f"📊 {tbl['number']}: {tbl['caption'][:40]}")
                 if tbl.get("data") and PD_OK:
-                    try:
-                        st.dataframe(pd.read_csv(io.StringIO(tbl["data"])),
-                                     use_container_width=True, hide_index=True)
+                    try: st.dataframe(pd.read_csv(io.StringIO(tbl["data"])),
+                                      use_container_width=True, hide_index=True)
                     except: pass
                 if st.button("🗑️", key=f"delt_{sec_key}_{i}"):
                     st.session_state.tables.pop(i); st.rerun()
 
-    # ── FORMULA ───────────────────────────────────────────────────
     with exp_col3.expander(add_frm_lbl):
-        test_ltx = st.text_input("LaTeX preview",
-                                  placeholder=r"Q=\frac{1}{n}AR^{2/3}S^{1/2}",
+        test_ltx = st.text_input("LaTeX", placeholder=r"Q=\frac{1}{n}AR^{2/3}",
                                   key=f"ltxprev_{sec_key}")
         if test_ltx:
             try: st.latex(test_ltx)
             except: st.code(test_ltx)
         with st.form(f"formf_{sec_key}", clear_on_submit=True):
             fnum   = st.text_input("№", value=str(len(forms)+1), disabled=dis)
-            flatex = st.text_input("LaTeX",
-                                    placeholder=r"Q = \frac{1}{n} A R^{2/3} S^{1/2}",
-                                    disabled=dis)
+            flatex = st.text_input("LaTeX", placeholder=r"\frac{a}{b}", disabled=dis)
             fdesc  = st.text_input({"kz":"Сипаттама","ru":"Описание","en":"Description"}[lk],
                                     placeholder={"kz":"Мэннинг формуласы",
                                                  "ru":"Уравнение Мэннинга",
-                                                 "en":"Manning's equation"}[lk],
-                                    disabled=dis)
+                                                 "en":"Manning's equation"}[lk], disabled=dis)
             if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
                                       disabled=dis) and flatex:
                 num = fnum or str(len(forms)+1)
@@ -1827,6 +1810,74 @@ def _media_panel_inline(sec_key: str, lk: str, dis: bool):
                 st.caption(f"({frm['number']}) {frm.get('desc','')[:40]}")
                 if st.button("🗑️", key=f"delfm_{sec_key}_{i}"):
                     st.session_state.formulas.pop(i); st.rerun()
+
+
+def _refs_panel_inline(lk: str, dis: bool):
+    """References panel embedded as last tab inside pg_sections."""
+    cs_list = t("cite_styles")
+    rt_list = t("ref_types")
+    L, R = st.columns(2, gap="large")
+    with L:
+        st.markdown(f'<div class="sec-hd">➕ {t("add_ref")}</div>', unsafe_allow_html=True)
+        with st.form("rff", clear_on_submit=True):
+            rtype = st.selectbox(t("ref_type"), rt_list, disabled=dis)
+            rau   = st.text_input(t("ref_au"),  placeholder="Samarkhanov K.B., Doe J.", disabled=dis)
+            ryr   = st.text_input(t("ref_yr"),  placeholder="2024", disabled=dis)
+            rti   = st.text_input(t("ref_ti"),  placeholder="Article title", disabled=dis)
+            rjn   = st.text_input(t("ref_jn"),  placeholder="Remote Sensing", disabled=dis)
+            c1, c2, c3 = st.columns(3)
+            rvo  = c1.text_input(t("ref_vol"), placeholder="15",        disabled=dis)
+            rno  = c2.text_input(t("ref_no"),  placeholder="3",          disabled=dis)
+            rpp  = c3.text_input(t("ref_pp"),  placeholder="1234–1250", disabled=dis)
+            rdoi = st.text_input(t("ref_doi"), placeholder="10.3390/…", disabled=dis)
+            rcit = rpub = ""
+            if rtype in [rt_list[1], rt_list[-1]]:
+                cx1, cx2 = st.columns(2)
+                rcit = cx1.text_input(t("ref_city"), disabled=dis)
+                rpub = cx2.text_input(t("ref_pub"),  disabled=dis)
+            if st.form_submit_button(f"➕ {t('add_btn')}", use_container_width=True,
+                                      disabled=dis) and rti:
+                st.session_state.refs.append({
+                    "type": rtype, "authors": rau, "year": ryr, "title": rti,
+                    "journal": rjn, "volume": rvo, "number": rno,
+                    "pages": rpp, "doi": rdoi, "city": rcit, "publisher": rpub})
+                st.success("✅")
+        if dis: login_prompt_button("ref")
+        st.divider()
+        st.markdown(f'<div class="sec-hd">📥 {t("import_bibtex")}</div>', unsafe_allow_html=True)
+        bib = st.text_area("BibTeX", height=120,
+                            placeholder="@article{key2024,\n  author={Doe, J.},\n  ...}",
+                            key="bib_in", disabled=dis)
+        ca, cb = st.columns(2)
+        if ca.button(t("import_bibtex"), use_container_width=True, disabled=dis):
+            if bib.strip():
+                parsed = parse_bibtex(bib)
+                if parsed: st.session_state.refs.extend(parsed); st.success(f"✅ {len(parsed)} {t('ref_s')}")
+                else: st.warning("No valid entries.")
+        if cb.button(t("import_plain"), use_container_width=True, disabled=dis):
+            lines = [ln.strip() for ln in bib.split("\n") if ln.strip()]
+            for ln in lines:
+                st.session_state.refs.append({"type": rt_list[0], "authors": "", "year": "",
+                    "title": ln, "journal": "", "volume": "", "number": "", "pages": "",
+                    "doi": "", "city": "", "publisher": ""})
+            if lines: st.success(f"✅ {len(lines)} {t('ref_s')}")
+    with R:
+        style = st.selectbox(t("cite_style_lbl"), cs_list,
+                             index=cs_list.index(st.session_state.cite_style)
+                             if st.session_state.cite_style in cs_list else 0,
+                             key="rs_sel")
+        st.session_state.cite_style = style
+        st.markdown(f'<div class="sec-hd">📋 {t("w_refs")} ({len(st.session_state.refs)})</div>',
+                    unsafe_allow_html=True)
+        if not st.session_state.refs:
+            st.info(t("no_refs"))
+        else:
+            for i, ref in enumerate(st.session_state.refs):
+                c1, c2 = st.columns([11, 1])
+                c1.markdown(f'<div class="ri"><span class="rn">[{i+1}]</span> '
+                            f'{fmt_ref(ref, style, i+1)}</div>', unsafe_allow_html=True)
+                if not dis and c2.button("🗑️", key=f"dr{i}"):
+                    st.session_state.refs.pop(i); st.rerun()
 
 
 def _preview_section(key: str, lk: str):
@@ -1968,76 +2019,6 @@ def fmt_ref(ref, style, n):
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  PAGE: REFS
-# ═══════════════════════════════════════════════════════════════════════════
-def pg_refs():
-    st.markdown(f"## 📑 {t('nav_refs')}")
-    guest_banner(); inline_nav(); st.write("")
-    dis = not is_logged_in()
-    cs_list = t("cite_styles")
-    L, R = st.columns(2, gap="large")
-
-    with L:
-        st.markdown(f'<div class="sec-hd">➕ {t("add_ref")}</div>', unsafe_allow_html=True)
-        rt_list = t("ref_types")
-        with st.form("rff", clear_on_submit=True):
-            rtype = st.selectbox(t("ref_type"), rt_list, disabled=dis)
-            rau   = st.text_input(t("ref_au"),  placeholder="Samarkhanov K.B., Doe J.", disabled=dis)
-            ryr   = st.text_input(t("ref_yr"),  placeholder="2024", disabled=dis)
-            rti   = st.text_input(t("ref_ti"),  placeholder="Article title", disabled=dis)
-            rjn   = st.text_input(t("ref_jn"),  placeholder="Remote Sensing", disabled=dis)
-            c1,c2,c3 = st.columns(3)
-            rvo = c1.text_input(t("ref_vol"),placeholder="15",disabled=dis)
-            rno = c2.text_input(t("ref_no"), placeholder="3", disabled=dis)
-            rpp = c3.text_input(t("ref_pp"), placeholder="1234–1250",disabled=dis)
-            rdoi = st.text_input(t("ref_doi"), placeholder="10.3390/...",disabled=dis)
-            rcit = rpub = ""
-            if rtype in [rt_list[1], rt_list[-1]]:   # Book or Thesis
-                cx1,cx2 = st.columns(2)
-                rcit=cx1.text_input(t("ref_city"),disabled=dis)
-                rpub=cx2.text_input(t("ref_pub"), disabled=dis)
-            if st.form_submit_button(f"➕ {t('add_btn')}",use_container_width=True,disabled=dis) and rti:
-                st.session_state.refs.append({
-                    "type":rtype,"authors":rau,"year":ryr,"title":rti,"journal":rjn,
-                    "volume":rvo,"number":rno,"pages":rpp,"doi":rdoi,"city":rcit,"publisher":rpub})
-                st.success("✅")
-        if dis: login_prompt_button("ref")
-        st.divider()
-        st.markdown(f'<div class="sec-hd">📥 {t("import_bibtex")}</div>', unsafe_allow_html=True)
-        bib = st.text_area("BibTeX",height=140,
-                           placeholder="@article{key2024,\n  author={Doe, J.},\n  ...}",
-                           key="bib_in",disabled=dis)
-        ca,cb = st.columns(2)
-        if ca.button(t("import_bibtex"),use_container_width=True,disabled=dis):
-            if bib.strip():
-                p = parse_bibtex(bib)
-                if p: st.session_state.refs.extend(p); st.success(f"✅ {len(p)} {t('ref_s')}")
-                else: st.warning("No valid entries.")
-        if cb.button(t("import_plain"),use_container_width=True,disabled=dis):
-            lines=[ln.strip() for ln in bib.split("\n") if ln.strip()]
-            for ln in lines:
-                st.session_state.refs.append({"type":rt_list[0],"authors":"","year":"",
-                    "title":ln,"journal":"","volume":"","number":"","pages":"","doi":"","city":"","publisher":""})
-            if lines: st.success(f"✅ {len(lines)} {t('ref_s')}")
-
-    with R:
-        style = st.selectbox(t("cite_style_lbl"), cs_list,
-                             index=cs_list.index(st.session_state.cite_style)
-                             if st.session_state.cite_style in cs_list else 0,
-                             key="rs_sel")
-        st.session_state.cite_style = style
-        st.markdown(f'<div class="sec-hd">📋 {t("w_refs")} ({len(st.session_state.refs)})</div>',
-                    unsafe_allow_html=True)
-        if not st.session_state.refs: st.info(t("no_refs"))
-        else:
-            for i,ref in enumerate(st.session_state.refs):
-                c1,c2=st.columns([11,1])
-                c1.markdown(f'<div class="ri"><span class="rn">[{i+1}]</span> '
-                            f'{fmt_ref(ref,style,i+1)}</div>',unsafe_allow_html=True)
-                if not dis and c2.button("🗑️",key=f"dr{i}"):
-                    st.session_state.refs.pop(i); st.rerun()
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  DOCX BUILDER
 # ═══════════════════════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════════════════════
 #  ENU TEMPLATE PATHS  &  MDPI STYLE HELPERS
@@ -2941,7 +2922,6 @@ def main():
     routes={
         "info":     pg_info,
         "sections": pg_sections,
-        "refs":     pg_refs,
         "generate": pg_generate,
         "thesis":   pg_thesis,
         "agent":    pg_agent,
